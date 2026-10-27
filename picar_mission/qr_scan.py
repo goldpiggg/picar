@@ -12,8 +12,14 @@ from pathlib import Path
 import sys
 import time
 
-TARGET_DISTANCE_CM = 30.0
-DISTANCE_OFFSET_CM = 0.0
+if __package__:
+    from .config import load_config
+else:
+    from config import load_config
+
+DEFAULT_CONFIG = load_config()
+TARGET_DISTANCE_CM = DEFAULT_CONFIG.target_distance_cm
+DISTANCE_OFFSET_CM = DEFAULT_CONFIG.distance_offset_cm
 KNOWN_CODES = frozenset({'LEFT', 'RIGHT', 'PICK', 'PLACE'})
 START_CODES = frozenset({'LEFT', 'RIGHT'})
 
@@ -157,7 +163,8 @@ def main(argv=None):
         emit('waiting', mode=args.mode, source=args.source, motor_control=False,
              planned_target_cm=TARGET_DISTANCE_CM, planned_offset_cm=DISTANCE_OFFSET_CM)
         cap = open_capture(cv2, args.source)
-        gate = StartGate()
+        gate = StartGate(DEFAULT_CONFIG.required_frames, DEFAULT_CONFIG.hold_seconds,
+                         DEFAULT_CONFIG.max_gap_seconds)
         deadline = time.monotonic() + args.timeout
         previous = None
         frames = 0

@@ -1,0 +1,11 @@
+{
+  "qr_enabled": true,
+  "target_distance_cm": 30.0,
+  "distance_offset_cm": 0.0,
+  "camera_backend": "usb",
+  "camera_source": 0,
+  "required_frames": 3,
+  "hold_seconds": 0.35,
+  "max_gap_seconds": 0.8,
+  "max_frame_age_seconds": 0.8
+}

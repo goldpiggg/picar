@@ -1,0 +1,33 @@
+# 제조사 코드 출처 및 변경 기록
+
+- 원본 저장소: https://github.com/adeept/Adeept_PiCar-Pro
+- 기준 커밋: `7703206c5e9e345c772232c0686e381790b87bb0`
+- 기존 사용자 이력은 그대로 유지하고 원본 기준 커밋의 파일 구성을 가져옵니다. 제조사 과거 커밋에는 API 키가 포함되어 GitHub Push Protection에서 차단되었으므로 제조사 이력은 병합하지 않습니다.
+- 원본 106개 파일 전체를 포함합니다. 공식 웹 화면의 이미지·글꼴·번들 JS, Client, Examples, setup.py를 생략하지 않았습니다. 원본에 이미 추적된 pyc 파일도 원본 구성에 포함되어 있습니다.
+- 원본 README는 `docs/ADEEPT_README.md`에 원문 보관하고 루트 README에도 원본 소개·저작권 부분을 남겼습니다. 별도 라이선스 부여나 제조사 공식 인증을 주장하지 않습니다.
+
+## 원본에서 수정한 파일
+
+1. `Server/WebServer.py`: 기존 실행점을 유지하면서 공용 QR runtime 시작 및 종료 처리 추가. 새 main.py 없음.
+2. `Server/app.py`: 기존 화면·영상 유지. `/mission`과 읽기 전용 `/mission/status` 추가.
+3. `Server/camera_opencv.py`: 공유 원본 프레임을 QR runtime에 전달. 수업의 USB 웹캠을 기본으로 지원하고 설정으로 원본 CSI 방식 선택. Picamera2는 CSI 선택 시에만 import. 카메라 해제 및 오류 전달 추가.
+4. `Server/base_camera.py`: 캡처 실패·5초 프레임 대기 시간초과를 호출자에게 전달. 시작 실패 시 무한 대기 방지.
+5. `README.md`: 통합 설치·실행·모듈 연결 안내 추가. 원본 README 원문은 별도 보존.
+6. `Examples/14_Example_Of_AI/TalkToAI.py`: 원본에 포함된 API 키를 제거하고 `DEEPSEEK_API_KEY` 환경변수에서 읽도록 수정. 이 AI 예제는 QR 실행 경로에 포함되지 않으며 QR 기능에는 API 키가 필요하지 않습니다.
+
+모터 `Move.py`, 서보 `RPIservo.py`, 초음파 `Ultra.py` 및 기존 `Functions.py`의 주행 알고리즘은 변경하지 않았습니다. 자동 주행·물체 이동이 구현된 것처럼 표시하지 않습니다.
+
+## 추가 모듈
+
+- `Server/mission_bridge.py`: 기존 Server와 사용자 패키지 연결. 저장소 루트 경로를 파일 위치 기준으로 구하므로 실행 디렉터리에 의존하지 않습니다.
+- `picar_mission/config.py`, `mission_config.json`: 기본 30cm·보정 0·USB 카메라 설정.
+- `picar_mission/runtime.py`: 최신 프레임 큐, 연속 인식, 확정 방향 저장. 모터/서보 import 없음.
+- `picar_mission/status.html`: 상태 확인 화면.
+- `scripts/register_service.py`: 이미 설치된 서비스의 실행 경로를 이 체크아웃으로 옮기는 선택 도구. 실행해야만 시스템 서비스가 변경됩니다.
+- `tests/`: 실물 QR 이미지와 가상 장치 통합 테스트. 이미지 출처는 수업에서 제공된 QR.zip입니다.
+
+## 동작 보존 및 한계
+
+기존 웹 제어 화면과 명령은 그대로입니다. QR 인식 성공은 `DIRECTION_CONFIRMED`와 `first_direction` 저장으로 끝납니다. 센서 기반 30cm 정지와 로봇팔 시퀀스는 다음 개발 단계입니다. 기존 웹 제어 명령은 여전히 로봇을 움직일 수 있고, 제조사 프로그램 시작 시에는 기존 서보 초기화가 실행됩니다.
+
+공식 setup.py는 설치·네트워크·자동 실행·재부팅을 포함하는 원본 그대로입니다. 기존 설치 환경에서 서비스 경로만 변경할 때는 register_service.py를 사용합니다. 서비스 등록 도구는 이 작업 중 PC에서 실행하지 않았고, 실제 로봇에서도 아직 실행하지 않았습니다.

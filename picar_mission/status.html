@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PiCar 미션 상태</title>
+<style>
+body{font:16px/1.6 system-ui,sans-serif;max-width:850px;margin:24px auto;padding:0 16px;color:#182730;background:#f5f7f8}
+img{width:100%;max-width:640px;height:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#e7eef0;padding:16px}a{color:#126079}
+</style>
+<h1>PiCar QR 인식</h1>
+<p>현재 단계: QR 방향 확인. 자동 주행·로봇팔 작업은 아직 연결되지 않았습니다.</p>
+<p><a href="/">기본 웹 제어</a> · <a href="/mission/status">상태 JSON</a></p>
+<img src="/video_feed" alt="공유 카메라 영상">
+<pre id="status" aria-live="polite">상태 확인 중…</pre>
+<script>
+async function refresh(){try{const r=await fetch('/mission/status',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);const s=await r.json();document.getElementById('status').textContent=JSON.stringify(s,null,2);}catch(e){document.getElementById('status').textContent='서버 연결 확인 필요: '+e.message;}finally{setTimeout(refresh,700);}}refresh();
+</script>
+</html>

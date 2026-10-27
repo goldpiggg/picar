@@ -70,7 +70,7 @@ class AttachedQRTests(unittest.TestCase):
 
     def load(self, name):
         import numpy as np
-        p = HERE.parent / 'tmp' / 'pdfs' / name
+        p = HERE.parent / 'tests' / 'fixtures' / name
         if not p.exists(): self.skipTest('Original attachment image not available')
         return self.cv2.imdecode(np.frombuffer(p.read_bytes(), dtype=np.uint8), self.cv2.IMREAD_COLOR)
 
