@@ -2,6 +2,16 @@
 # File name   : WebServer.py
 # Website     : www.Adeept.com
 # Author      : Adeept
+if __name__ == '__main__':
+    # Fail before importing hardware if another controller owns the ports.
+    import socket
+    for controller_port in (5000,8888):
+        with socket.socket() as probe:
+            probe.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+            try:
+                probe.bind(('0.0.0.0',controller_port))
+            except OSError:
+                raise SystemExit('Controller port already in use. Stop the old Adeept_Robot service first.')
 import time
 import Move as move
 import os
@@ -19,9 +29,10 @@ import Voltage
 import subprocess
 import mission_bridge
 import atexit
+import signal
 
-# Reuse the existing entry point. QR only records direction; no auto driving yet.
-atexit.register(mission_bridge.runtime.stop)
+# Existing entry point owns the automatic approach and the official drivers.
+atexit.register(mission_bridge.shutdown)
 
 
 Dv = -1 #Directional variable
@@ -72,6 +83,8 @@ def servoPosInit():
     scGear.initConfig(4,init_pwm4,1)
 
 def functionSelect(command_input, response):
+    if not mission_bridge.allow_command(command_input,response):
+        return
     if 'scan' == command_input:
         if OLED_connection:
             screen.screen_show(5,'SCANNING')
@@ -192,6 +205,8 @@ def switchCtrl(command_input, response):
 
 
 def robotCtrl(command_input, response):
+    if not mission_bridge.allow_command(command_input,response):
+        return
     if 'forward' == command_input:
         move.move(speed_set, 1, "mid")
     
@@ -265,6 +280,8 @@ def robotCtrl(command_input, response):
         scGear.moveServoInit([3])
 
 def robotCtrl_speech(command_input, response):
+    if not mission_bridge.allow_command(command_input,response):
+        return
     if 'stop' in command_input:
         scGear.stopWiggle()
     elif 'lookleft' == command_input:
@@ -298,6 +315,8 @@ def robotCtrl_speech(command_input, response):
         scGear.moveServoInit([3])
 
 def configPWM(command_input, response):
+    if not mission_bridge.allow_command(command_input,response):
+        return
     global init_pwm0, init_pwm1, init_pwm2, init_pwm3, init_pwm4
 
     if 'SiLeft' in command_input:
@@ -367,7 +386,8 @@ async def check_permit(websocket):
 
 async def recv_msg(websocket):
     global speed_set
-    move.setup()
+    if not mission_bridge.automatic_enabled():
+        move.setup()
 
     while True: 
         response = {
@@ -387,6 +407,10 @@ async def recv_msg(websocket):
             continue
 
         if isinstance(data,str):
+            # Gate the complete dispatcher, including legacy CV mode commands.
+            if not mission_bridge.allow_command(data,response):
+                await websocket.send(json.dumps(response))
+                continue
             robotCtrl(data, response)
 
             switchCtrl(data, response)
@@ -427,6 +451,10 @@ async def recv_msg(websocket):
                 flask_app.camera.errorSet(err)
 
         elif(isinstance(data,dict)):
+            if mission_bridge.automatic_enabled():
+                response.update(title='missionLocked',data={'state':mission_bridge.status()['state']})
+                await websocket.send(json.dumps(response))
+                continue
             if data['title'] == "findColorSet":
                 color = data['data']
                 flask_app.colorFindSet(color[0],color[1],color[2])
@@ -477,6 +505,15 @@ async def start_server():
 
 if __name__ == '__main__':
     global flask_app, speech
+    def shutdown_signal(signum, frame):
+        try:
+            mission_bridge.shutdown()
+        finally:
+            # Legacy non-daemon threads otherwise survive Python's main thread.
+            os._exit(128+signum)
+    signal.signal(signal.SIGINT, shutdown_signal)
+    signal.signal(signal.SIGTERM, shutdown_signal)
+    mission_bridge.configure(move,scGear,functions.ultra)
     mission_bridge.runtime.start()
     try:
         switch.switchSetup()
@@ -507,3 +544,5 @@ if __name__ == '__main__':
         asyncio.run(start_server())
     except Exception as e:
         print(e)
+    finally:
+        mission_bridge.shutdown()

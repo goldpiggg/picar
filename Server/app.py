@@ -32,7 +32,14 @@ def video_feed():
 @app.route('/mission/status')
 def mission_status():
     from flask import jsonify
-    return jsonify(mission_bridge.runtime.snapshot())
+    return jsonify(mission_bridge.status())
+
+
+@app.route('/mission/stop', methods=['POST'])
+def mission_stop():
+    from flask import jsonify
+    mission_bridge.cancel('WEB_STOP')
+    return jsonify(mission_bridge.status())
 
 
 @app.route('/mission')

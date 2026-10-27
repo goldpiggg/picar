@@ -1,6 +1,6 @@
 # PiCar QR 인식 1차 버전
 
-> 통합 실행은 저장소 루트 README를 따르세요. 기존 `Server/WebServer.py`가 이 폴더의 QR 모듈을 자동으로 사용합니다. 아래 내용은 QR 코드만 독립적으로 시험할 때의 사용법입니다. 공통 설정은 루트 `mission_config.json`에서 읽습니다.
+> 통합 실행은 저장소 루트 README를 따르세요. 기존 `Server/WebServer.py`는 기본 설정에서 QR을 읽으면 자동 접근·정지까지 실행합니다. 아래의 `qr_scan.py` 독립 실행만 QR 확인 전용이며 모터를 움직이지 않습니다. 공통 설정은 루트 `mission_config.json`에서 읽습니다.
 
 `qr_scan.py` 한 파일을 라즈베리파이에 복사하면 됩니다. Python 3.8+ 및 OpenCV 4.5+가 필요합니다. 모터/서보/초음파 모듈은 불러오지 않습니다.
 

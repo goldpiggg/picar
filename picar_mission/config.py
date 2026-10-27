@@ -18,6 +18,25 @@ class MissionConfig:
     hold_seconds: float = 0.35
     max_gap_seconds: float = 0.8
     max_frame_age_seconds: float = 0.8
+    auto_approach_enabled: bool = True
+    cruise_speed: int = 30
+    slow_speed: int = 18
+    slow_distance_cm: float = 50.0
+    distance_max_age_seconds: float = 0.25
+    distance_filter_size: int = 3
+    distance_jump_slack_cm: float = 3.0
+    max_closing_speed_cm_s: float = 60.0
+    control_period_seconds: float = 0.02
+    sensor_warmup_seconds: float = 2.0
+    approach_timeout_seconds: float = 20.0
+    progress_timeout_seconds: float = 3.0
+    progress_min_cm: float = 0.5
+    steering_settle_seconds: float = 0.25
+    stop_tolerance_cm: float = 1.0
+    stop_hold_seconds: float = 0.6
+    stop_timeout_seconds: float = 3.0
+    stop_stability_cm: float = 0.6
+    stop_samples: int = 4
 
 
 def load_config(path=None):
@@ -38,4 +57,29 @@ def load_config(path=None):
             raise ValueError(name + ' must be positive and finite')
     if not isinstance(cfg.distance_offset_cm, (int, float)) or isinstance(cfg.distance_offset_cm, bool) or not math.isfinite(cfg.distance_offset_cm):
         raise ValueError('distance_offset_cm must be finite')
+    if type(cfg.auto_approach_enabled) is not bool:
+        raise ValueError('auto_approach_enabled must be boolean')
+    if cfg.auto_approach_enabled and not cfg.qr_enabled:
+        raise ValueError('Auto approach requires QR recognition')
+    for name in ('slow_distance_cm', 'distance_max_age_seconds', 'distance_jump_slack_cm',
+                 'max_closing_speed_cm_s', 'control_period_seconds', 'sensor_warmup_seconds',
+                 'approach_timeout_seconds', 'progress_timeout_seconds', 'progress_min_cm',
+                 'steering_settle_seconds', 'stop_tolerance_cm', 'stop_hold_seconds',
+                 'stop_timeout_seconds', 'stop_stability_cm'):
+        value = getattr(cfg, name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+            raise ValueError(name + ' must be positive and finite')
+    if not 2 < cfg.target_distance_cm < cfg.slow_distance_cm < 199:
+        raise ValueError('Require 2 < target_distance_cm < slow_distance_cm < 199')
+    if not 0 < cfg.stop_tolerance_cm < cfg.target_distance_cm-2:
+        raise ValueError('Invalid stop tolerance')
+    if cfg.stop_timeout_seconds <= cfg.stop_hold_seconds:
+        raise ValueError('stop_timeout_seconds must exceed stop_hold_seconds')
+    for name in ('cruise_speed', 'slow_speed', 'distance_filter_size', 'stop_samples'):
+        if type(getattr(cfg, name)) is not int:
+            raise ValueError(name + ' must be integer')
+    if not 0 < cfg.slow_speed < cfg.cruise_speed <= 100:
+        raise ValueError('Require 0 < slow_speed < cruise_speed <= 100')
+    if cfg.distance_filter_size not in (1, 3, 5) or cfg.stop_samples < 3:
+        raise ValueError('Invalid filter size or stop sample count')
     return cfg
