@@ -37,6 +37,7 @@ class MissionConfig:
     stop_timeout_seconds: float = 3.0
     stop_stability_cm: float = 0.6
     stop_samples: int = 4
+    arm_enabled: bool = False
 
 
 def load_config(path=None):
@@ -59,6 +60,10 @@ def load_config(path=None):
         raise ValueError('distance_offset_cm must be finite')
     if type(cfg.auto_approach_enabled) is not bool:
         raise ValueError('auto_approach_enabled must be boolean')
+    if type(cfg.arm_enabled) is not bool:
+        raise ValueError('arm_enabled must be boolean')
+    if cfg.arm_enabled and not cfg.auto_approach_enabled:
+        raise ValueError('Automatic arm sequence requires automatic approach')
     if cfg.auto_approach_enabled and not cfg.qr_enabled:
         raise ValueError('Auto approach requires QR recognition')
     for name in ('slow_distance_cm', 'distance_max_age_seconds', 'distance_jump_slack_cm',

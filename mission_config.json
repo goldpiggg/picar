@@ -26,5 +26,6 @@
   "stop_hold_seconds": 0.6,
   "stop_timeout_seconds": 3.0,
   "stop_stability_cm": 0.6,
-  "stop_samples": 4
+  "stop_samples": 4,
+  "arm_enabled": false
 }

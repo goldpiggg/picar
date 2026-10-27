@@ -9,6 +9,7 @@ if str(ROOT) not in sys.path:
 from picar_mission.config import load_config
 from picar_mission.runtime import MissionRuntime
 from picar_mission.mission_controller import MissionController
+from picar_mission.arm_sequence import ArmSequence, load_profile
 from threading import RLock
 
 config = load_config()
@@ -33,6 +34,24 @@ class DriveAdapter:
         self.move.move(speed,1,'mid')
 
 
+class ArmAdapter:
+    """Absolute servo degrees. Steering channel 0 is never accepted here."""
+    channels = {'base':1,'shoulder':2,'elbow':3,'gripper':4}
+
+    def __init__(self, servo):
+        self.servo = servo
+
+    def read_angles(self):
+        return {name:float(self.servo.nowPos[channel]) for name,channel in self.channels.items()}
+
+    def set_joint(self, name, angle):
+        self.servo.setPWM(self.channels[name],angle)
+
+    def hold(self):
+        # Pause interpolation/wiggle; maintain PWM so a held object is not dropped.
+        self.servo.stopWiggle()
+
+
 def automatic_enabled():
     return config.auto_approach_enabled
 
@@ -42,8 +61,10 @@ def configure(move, steering, ultrasound):
     with _lock:
         if controller is not None:
             return
+        move.motorStop()
+        arm = ArmSequence(ArmAdapter(steering),load_profile())
         controller = MissionController(config,DriveAdapter(move,steering),
-                                       ultrasound.read_sample,runtime.snapshot)
+                                       ultrasound.read_sample,runtime.snapshot,arm_sequence=arm)
         if _cancelled:
             controller.cancel()
         else:
@@ -55,9 +76,17 @@ def status():
     if controller is None:
         return {**qr,'state':'INITIALIZING' if config.auto_approach_enabled else qr['state'],
                 'control_ready':False,'qr':qr}
+    # Memory-only readback of commanded servo angles, useful when teaching poses
+    # with the existing manual web controls. This is not physical position feedback.
+    try:
+        angles = controller.arm.driver.read_angles()
+    except (AttributeError,TypeError,IndexError):
+        angles = None
     if not config.auto_approach_enabled:
-        return {**qr,'control_ready':True,'qr':qr,'approach':controller.snapshot()}
-    return {**controller.snapshot(),'control_ready':True,'qr':qr}
+        return {**qr,'control_ready':True,'qr':qr,'approach':controller.snapshot(),
+                'commanded_servo_angles_deg':angles}
+    return {**controller.snapshot(),'control_ready':True,'qr':qr,
+            'commanded_servo_angles_deg':angles}
 
 
 STOP_COMMANDS = frozenset({'stop','DS','TS','LRstop','armstop','HAstop',

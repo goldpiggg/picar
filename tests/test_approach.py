@@ -215,7 +215,7 @@ class OfficialConnectionTests(unittest.TestCase):
     def test_pending_cancel_prevents_startup(self):
         b=self.load_bridge();calls=[]
         move=SimpleNamespace(motorStop=lambda:calls.append('stop'),move=lambda *args:calls.append('forward'))
-        steering=SimpleNamespace(moveAngle=lambda *args:calls.append('steer'))
+        steering=SimpleNamespace(moveAngle=lambda *args:calls.append('steer'),stopWiggle=lambda:calls.append('hold'))
         b.cancel()
         b.configure(move,steering,SimpleNamespace(read_sample=lambda:None))
         self.assertEqual(b.controller.snapshot()['state'],'CANCELLED')

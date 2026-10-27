@@ -2,7 +2,7 @@
 
 제조사 기본 코드 전체와 QR 인식 모듈을 함께 포함합니다. **시작 파일은 기존 `Server/WebServer.py`입니다. 새 `main.py`는 없습니다.**
 
-현재 연결된 단계는 **QR 인식 → 방향 저장 → 직진 → 감속 → 모니터와 거리 30cm에서 정지 명령 → 정지 확인 → 방향을 유지하며 대기**입니다. 거리 보정은 **0cm**입니다. **기본 설정에서는 QR을 확인하면 실제로 전진합니다.** 로봇팔 자동 물체 이동은 아직 구현하지 않았습니다. 자동 모드에서는 기존 웹·음성·영상 추적의 움직임 명령을 차단하고 중지 명령은 받습니다.
+현재 연결된 단계는 **QR 인식 → 방향 저장 → 직진 → 감속 → 모니터와 거리 30cm에서 정지 명령 → 정지 확인**입니다. 그 뒤 보정이 완료된 팔 설정을 활성화하면 **첫 물체 이동 → 두 번째 물체 이동 → 완료**까지 실행합니다. 거리 보정은 **0cm**입니다. **기본 설정에서는 QR을 확인하면 실제로 전진하지만, 팔은 임시 각도 상태라 자동 실행을 잠가 두었습니다.** 자동 모드에서는 기존 웹·음성·영상 추적의 움직임 명령을 차단하고 중지 명령은 받습니다.
 
 ## 모듈 연결
 
@@ -20,10 +20,13 @@ flowchart TD
     U --> T[approach.py 직진·감속·정지 판단]
     T --> D[기존 Move / RPIservo 조향 채널 0]
     M --> P[웹 상태 /mission/status]
+    M --> L[정지 확인 + 팔 활성화 + 각도 보정 확인]
+    L --> H[arm_sequence.py 보정 자세 순서 실행]
+    H --> J[RPIservo 기존 객체의 팔 채널 1~4]
     A --> P
 ```
 
-기존 QR 파일을 삭제하지 않고 모듈로 재사용합니다. `runtime.py`는 공식 카메라의 원본 프레임을 받아 방향을 확정하고, 별도 미션 작업이 이를 읽어 주행합니다. LEFT/RIGHT는 같은 직진 경로를 사용합니다. `first_direction`은 완료·오류·중지 후에도 유지되며 재시작하면 초기화됩니다. 팔 관절은 조작하지 않고 주행 전 조향 채널 0만 중앙으로 맞춥니다.
+기존 QR 파일을 삭제하지 않고 모듈로 재사용합니다. `runtime.py`는 공식 카메라의 원본 프레임을 받아 방향을 확정하고, 별도 미션 작업이 이를 읽어 주행합니다. LEFT/RIGHT는 같은 직진 경로를 사용합니다. `first_direction`은 완료·오류·중지 후에도 유지되며 재시작하면 초기화됩니다. 주행 전에는 조향 채널 0만 중앙으로 맞춥니다. 팔 모듈은 정지 확인 후에만 채널 1~4를 사용하며 조향 채널 0을 사용하지 않습니다.
 
 ## 이미 기본 동작이 확인된 라즈베리파이에서 실행
 
@@ -49,7 +52,7 @@ sudo python3 Server/WebServer.py
 WAIT_QR → CHECK_DISTANCE → APPROACH → SLOW_APPROACH → VERIFY_STOP → STOPPED_WAIT
 ```
 
-`CHECK_DISTANCE`에서 새 초음파 값 3개와 조향 안정 대기를 확인한 뒤 출발합니다. 50cm 안쪽에서 PWM 명령을 점차 줄이고, 원시 거리 또는 중앙값이 30cm 이하가 되면 정지 명령을 내립니다. 새 측정값 4개로 만든 창이 0.6cm 이내로 안정되고 30±1cm 범위에 있는 상태가 0.6초 이상 지속되어야 `STOPPED_WAIT`가 됩니다. 이때 `command_speed=0`, `approach_complete=true`가 되고 저장한 방향을 유지합니다. 자동 재출발·후진 위치 보정·로봇팔 동작은 하지 않습니다.
+`CHECK_DISTANCE`에서 새 초음파 값 3개와 조향 안정 대기를 확인한 뒤 출발합니다. 50cm 안쪽에서 PWM 명령을 점차 줄이고, 원시 거리 또는 중앙값이 30cm 이하가 되면 정지 명령을 내립니다. 새 측정값 4개로 만든 창이 0.6cm 이내로 안정되고 30±1cm 범위에 있는 상태가 0.6초 이상 지속되어야 정지가 확인됩니다. 이때 `command_speed=0`, `approach_complete=true`가 되고 저장한 방향을 유지합니다. 기본 임시 팔 설정에서는 `STOPPED_WAIT`에서 대기합니다. 팔 활성화와 각도 보정 확인을 모두 마친 경우에만 `ARM_TRANSFER → COMPLETE`로 이어집니다. 자동 재출발·후진 위치 보정은 하지 않습니다.
 
 모터가 정지 명령 이후 굴러간 거리까지 보정하는 제동거리 모델은 아직 적용하지 않았습니다. 따라서 목표 30cm와 실제 정지거리가 같다고 보장하지 않습니다. 기준 범위를 넘거나 정지가 확인되지 않으면 성공으로 표시하지 않고 `ERROR` 상태로 멈춥니다. 거리 안정 검사는 초음파 기준의 정지 추정이며 바퀴 엔코더로 실제 정지를 확인하는 방식은 아닙니다.
 
@@ -83,6 +86,7 @@ sudo journalctl -u Adeept_Robot.service -n 60 --no-pager
 | `target_distance_cm` | 30.0 | 모니터와 초음파 센서 사이 목표 거리 |
 | `distance_offset_cm` | 0.0 | 원시 거리값에 더하는 보정값 |
 | `auto_approach_enabled` | true | QR 확정 후 자동 접근. false면 기존 수동 제어 및 QR 확인만 사용 |
+| `arm_enabled` | false | 정지 확인 후 팔 작업 활성화. arm_poses.json 보정 확인도 필요 |
 | `cruise_speed` / `slow_speed` | 30 / 18 | 제조사 모터 API의 PWM 명령(0~100). cm/s가 아님 |
 | `slow_distance_cm` | 50.0 | 감속 구간 시작 거리 |
 | `distance_max_age_seconds` | 0.25 | 초음파 측정 시각 기준 최대 나이 |
@@ -115,6 +119,7 @@ picar_mission/
   mission_controller.py  QR부터 정지 확인까지의 상태 관리
   distance.py            새 측정값·유효성·중앙값 처리
   approach.py            감속과 30cm 정지 명령 정책
+  arm_sequence.py        자세 계획·속도 제한·집기/놓기 순서
   config.py              공통 설정 로드
   status.html            QR 상태 화면
   test_qr_scan.py         기존 테스트
@@ -123,9 +128,28 @@ Examples/                제조사 예제 전체
 tests/                   통합 테스트와 실제 QR 이미지
 scripts/register_service.py  기존 서비스 실행 경로 등록 도구
 mission_config.json      기본 30cm, 보정 0 및 카메라 설정
+arm_poses.json           임시 팔 자세·집게 각도·속도·보정 확인
+docs/ARM_CALIBRATION.md  임시값 전체 표와 실제 측정·기록 방법
 docs/ADEEPT_README.md     제조사 원본 README
 docs/UPSTREAM.md          원본 버전과 수정 목록
 ```
+
+## 로봇팔 각도 보정
+
+[보정 안내](docs/ARM_CALIBRATION.md)에 임시값 전체와 측정 순서를 기록했습니다. `arm_poses.json`의 각도는 모두 예시이며 실제 로봇에서 검증한 값이 아닙니다. `calibration_confirmed=false`와 `arm_enabled=false`로 팔 자동 실행을 막았습니다. 이 상태에서도 기존 자동 주행은 유지됩니다.
+
+팔은 지정 방향에서 집고 반대편 빈 상자에 놓은 뒤, 남은 반대편 물체를 처음 방향의 빈 상자에 놓습니다. 각 이동은 위쪽 접근 → 내려가기 → 집게 조작 → 들어 올리기 → 중앙 경유 → 놓기 → 후퇴 순서입니다. 관절 목표값은 20도/초 이하로 조금씩 변경합니다. 중지 시에는 팔을 처음 위치로 돌리거나 집게를 열지 않고 마지막 명령 자세를 유지합니다.
+
+수동 자세 보정 시 `auto_approach_enabled=false`, `arm_enabled=false`로 설정하고 서버를 재시작합니다. 기존 웹 팔 조작으로 자세를 맞춘 뒤 `/mission/status`의 `commanded_servo_angles_deg`를 기록합니다. 이 값은 실제 각도 센서의 피드백이 아니라 마지막 명령 각도입니다. 실제로 물체를 잘 잡는지와 자세 사이 경로에 충돌이 없는지도 확인해야 합니다.
+
+하드웨어 동작 없이 LEFT/RIGHT 순서와 임시 각도를 확인할 수 있습니다.
+
+```bash
+python3 -m picar_mission.arm_sequence --plan LEFT
+python3 -m picar_mission.arm_sequence --plan RIGHT
+```
+
+고정 자세 방식이며 PICK/PLACE QR에 맞춰 팔을 자동 정렬하는 기능과 물체를 실제로 잡았는지 감지하는 기능은 없습니다. `COMPLETE`는 두 번의 집기/놓기 명령 시퀀스를 마쳤다는 뜻입니다. 초음파 센서가 팔과 함께 회전할 수 있으므로 팔 작업 중에는 정면 30cm 거리 검사를 다시 적용하지 않고 바퀴 제어 잠금을 유지합니다.
 
 ## 검증
 

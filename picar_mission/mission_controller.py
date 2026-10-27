@@ -1,4 +1,4 @@
-"""QR -> straight approach -> verified stop -> locked wait. No arm actions."""
+"""QR -> verified stop -> optional calibrated arm transfers; wheels stay locked."""
 from collections import deque
 from statistics import median
 import threading
@@ -8,13 +8,14 @@ from .distance import DistanceFilter, SensorFault
 from .qr_scan import emit
 
 
-TERMINAL = frozenset({'STOPPED_WAIT','ERROR','CANCELLED','DISABLED'})
+TERMINAL = frozenset({'STOPPED_WAIT','COMPLETE','ERROR','CANCELLED','DISABLED'})
 
 
 class MissionController:
-    def __init__(self, config, drive, read_sample, qr_snapshot, clock=time.monotonic):
+    def __init__(self, config, drive, read_sample, qr_snapshot, clock=time.monotonic, arm_sequence=None):
         self.cfg,self.drive,self.read_sample,self.qr_snapshot = config,drive,read_sample,qr_snapshot
         self.clock = clock
+        self.arm = arm_sequence
         self.lock = threading.RLock()
         self.stop_event = threading.Event()
         self.worker = None
@@ -34,11 +35,17 @@ class MissionController:
                          automatic_motion_enabled=config.auto_approach_enabled,
                          approach_complete=False, drive_locked=True, arm_motion_enabled=False,
                          implemented_stages=['qr_recognition','approach_30cm'],
-                         pending_stages=['arm_transfer'])
+                         pending_stages=['arm_calibration'],
+                         arm_requested=config.arm_enabled,
+                         arm_blocked_reason='DISABLED' if not config.arm_enabled else 'CALIBRATION_REQUIRED')
+        if self.arm is not None:
+            self.data['implemented_stages'].append('arm_transfer_sequence')
 
     def snapshot(self):
         with self.lock:
-            return dict(self.data)
+            result = dict(self.data)
+            result['arm'] = None if self.arm is None else self.arm.snapshot()
+            return result
 
     def _state(self, state, now):
         self.data['state'] = state
@@ -52,17 +59,21 @@ class MissionController:
     def cancel(self, reason='USER_STOP'):
         with self.lock:
             self._stop()
+            if self.arm is not None:
+                self.arm.cancel()
             if self.data['state'] not in TERMINAL:
-                self.data.update(error=reason, automatic_motion_enabled=False)
+                self.data.update(error=reason, automatic_motion_enabled=False,arm_motion_enabled=False)
                 self._state('CANCELLED',self.clock())
 
     def fail(self, reason):
         with self.lock:
             try:
                 self._stop()
+                if self.arm is not None and self.arm.state=='MOVING':
+                    self.arm.cancel()
             finally:
                 self.data.update(error=reason, automatic_motion_enabled=False,
-                                 approach_complete=False, drive_locked=True)
+                                 drive_locked=True,arm_motion_enabled=False)
                 self._state('ERROR',self.clock())
 
     def step(self, now=None):
@@ -82,6 +93,17 @@ class MissionController:
                 raise SensorFault('QR_CAMERA_ERROR: '+str(qr.get('error')))
             if state!='WAIT_QR' and not qr.get('camera_fresh',False):
                 raise SensorFault('CAMERA_FRAME_TIMEOUT')
+            if state=='ARM_TRANSFER':
+                # The head/sensor may rotate with the arm: do not use side
+                # echoes as monitor distance. All wheel commands remain locked.
+                if self.data['command_speed']!=0:
+                    raise RuntimeError('ARM_REQUIRES_STOPPED_DRIVE')
+                if self.arm.tick(now)=='COMPLETE':
+                    self._stop()
+                    self.data.update(arm_motion_enabled=False,automatic_motion_enabled=False,
+                                     arm_blocked_reason=None,pending_stages=[])
+                    self._state('COMPLETE',now)
+                return
             if state=='WAIT_QR':
                 direction = qr.get('first_direction')
                 if direction not in ('LEFT','RIGHT'):
@@ -148,7 +170,14 @@ class MissionController:
                     now-self.stable_since >= self.cfg.stop_hold_seconds):
                     self._stop()
                     self.data.update(approach_complete=True, automatic_motion_enabled=False,drive_locked=True)
-                    self._state('STOPPED_WAIT',now)
+                    if self.cfg.arm_enabled and self.arm is not None and self.arm.profile.calibrated:
+                        self.arm.start(self.data['first_direction'],now)
+                        self.data.update(arm_motion_enabled=True,automatic_motion_enabled=True,
+                                         arm_blocked_reason=None)
+                        self._state('ARM_TRANSFER',now)
+                    else:
+                        self.data['arm_blocked_reason'] = 'DISABLED' if not self.cfg.arm_enabled else 'CALIBRATION_REQUIRED'
+                        self._state('STOPPED_WAIT',now)
 
     def start(self):
         if not self.cfg.auto_approach_enabled or self.worker is not None:
