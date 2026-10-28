@@ -1,4 +1,4 @@
-"""Default driving flow: one QR -> constant forward PWM -> stop at <=30cm."""
+"""One QR -> constant forward PWM -> stop at the configured distance."""
 import math
 from .mission_controller import MissionController, TERMINAL
 from .distance import SensorFault
@@ -9,7 +9,7 @@ class DirectMissionController(MissionController):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.data.update(drive_mode='direct', configured_speed=self.cfg.direct_speed,
-                         implemented_stages=['qr_recognition','direct_approach_30cm'],
+                         implemented_stages=['qr_recognition','direct_approach'],
                          stop_reason=None)
         if self.arm is not None:
             self.data['implemented_stages'].append('arm_transfer_sequence')

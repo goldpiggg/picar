@@ -46,8 +46,9 @@ class Harness:
 
     def finish(self):
         states=[]
-        for d in range(79,29,-1): states.append(self.echo(float(d)))
-        for _ in range(20): states.append(self.echo(29.9))
+        target=self.controller.cfg.target_distance_cm
+        for d in range(79,int(target)-1,-1): states.append(self.echo(float(d)))
+        for _ in range(20): states.append(self.echo(target-.1))
         return states
 
 
@@ -88,11 +89,11 @@ class ApproachTests(unittest.TestCase):
         return DistanceReading(raw,raw if filtered is None else filtered,1.,1,True,True)
 
     def test_raw_distance_stops_before_delayed_median(self):
-        self.assertEqual(Approach(MissionConfig()).command(self.reading(30.,32.)),0)
+        self.assertEqual(Approach(MissionConfig()).command(self.reading(36.,38.)),0)
 
     def test_speed_decreases_and_never_reaccelerates(self):
         p=Approach(MissionConfig())
-        speeds=[p.command(self.reading(d)) for d in [80,50,40,35,37,33,31]]
+        speeds=[p.command(self.reading(d)) for d in [80,50,46,41,43,39,37]]
         self.assertEqual(speeds[0],30)
         self.assertEqual(speeds,sorted(speeds,reverse=True))
         self.assertGreaterEqual(min(speeds),18)
@@ -156,15 +157,15 @@ class MissionTests(unittest.TestCase):
 
     def test_overshoot_is_failure_without_reverse(self):
         h=Harness();h.start()
-        for d in range(79,29,-1): h.echo(float(d))
-        h.echo(28.8)
+        for d in range(79,int(h.controller.cfg.target_distance_cm)-1,-1): h.echo(float(d))
+        h.echo(h.controller.cfg.target_distance_cm-1.2)
         self.assertEqual(h.controller.snapshot()['error'],'PASSED_STOP_BAND')
         self.assertFalse(h.controller.snapshot()['approach_complete'])
         self.assertNotIn('reverse',[x[0] for x in h.drive.commands])
 
     def test_stop_repeated_value_does_not_confirm(self):
         h=Harness();h.start()
-        for d in range(79,29,-1): h.echo(float(d))
+        for d in range(79,int(h.controller.cfg.target_distance_cm)-1,-1): h.echo(float(d))
         for _ in range(5): h.time+=.02;h.controller.step()
         self.assertEqual(h.controller.snapshot()['state'],'VERIFY_STOP')
 
@@ -270,7 +271,8 @@ class ClosedLoopTests(unittest.TestCase):
                     def straight(self): history.append(('steer',0))
                     def forward(self,speed): command[0]=speed;history.append(('forward',speed))
                 qr=lambda:dict(state='DIRECTION_CONFIRMED',first_direction='LEFT',camera_fresh=True)
-                c=MissionController(MissionConfig(),PlantDrive(),lambda:packet[0],qr,clock=lambda:now[0])
+                # Preserve the original 30cm precision-mode model fixture.
+                c=MissionController(MissionConfig(target_distance_cm=30.),PlantDrive(),lambda:packet[0],qr,clock=lambda:now[0])
                 for tick in range(1250):
                     now[0]=tick*.02
                     desired=command[0]*gain
@@ -284,7 +286,7 @@ class ClosedLoopTests(unittest.TestCase):
                     if c.snapshot()['state'] in ('ERROR','STOPPED_WAIT'):
                         break
                 self.assertEqual(c.snapshot()['state'],'STOPPED_WAIT',c.snapshot())
-                self.assertLessEqual(abs(distance[0]-30),1.)
+                self.assertLessEqual(abs(distance[0]-c.cfg.target_distance_cm),1.)
                 self.assertEqual(command[0],0)
                 self.assertLess(velocity[0],.01)
                 self.assertFalse(c.snapshot()['arm_motion_enabled'])

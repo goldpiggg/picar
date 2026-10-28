@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 @dataclass(frozen=True)
 class MissionConfig:
     qr_enabled: bool = True
-    target_distance_cm: float = 30.0
+    target_distance_cm: float = 36.0
     distance_offset_cm: float = 0.0
     camera_backend: str = 'usb'
     camera_source: object = 0

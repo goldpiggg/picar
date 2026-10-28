@@ -6,7 +6,7 @@
 
 ## 이번 버전 범위
 
-- 목표 거리 30.0cm, 거리 보정값 0.0cm를 설정값으로 둡니다. 아직 거리 측정이나 정지 제어는 구현하지 않았습니다.
+- 목표 거리 36.0cm, 거리 보정값 0.0cm를 설정값으로 둡니다. 아직 거리 측정이나 정지 제어는 구현하지 않았습니다.
 - `LEFT`, `RIGHT`, `PICK`, `PLACE`를 인식합니다. 대소문자와 앞뒤 공백만 정규화하고 다른 내용은 명령으로 해석하지 않습니다.
 - 출발 모드는 기본 설정에서 LEFT/RIGHT 한 개를 1회 읽으면 방향을 한 번 확정한 뒤 종료합니다. 기본 추가 대기 시간은 0초입니다.
 - 누락, 방향 변경, 두 출발 QR의 동시 인식, 기본 1.5초 초과의 관측 간격은 확인을 다시 시작하게 합니다. PICK/PLACE만 보이면 출발을 확정하지 않습니다.
@@ -27,7 +27,7 @@ python3 qr_scan.py
 실행 후 카메라 앞에 첨부 자료의 LEFT 또는 RIGHT QR을 보여줍니다. 정상 출력 예시는 아래와 같습니다.
 
 ```json
-{"event":"start_confirmed","direction":"LEFT","target_distance_cm":30.0,"distance_offset_cm":0.0,"motor_control":false}
+{"event":"start_confirmed","direction":"LEFT","target_distance_cm":36.0,"distance_offset_cm":0.0,"motor_control":false}
 ```
 
 실제 출력에는 프레임 수와 확인 시간도 포함됩니다. 성공 후 프로그램은 종료됩니다. 재시험하려면 다시 실행하세요. 인식값은 화면에 보여주는 QR로 결정하며, 물리적인 왼쪽/오른쪽 위치로 추측하지 않습니다.
@@ -88,4 +88,4 @@ python3 -m unittest discover -s picar_mission -p 'test_*.py' -v
 - [OpenCV QRCodeDetector](https://docs.opencv.org/4.x/de/dc3/classcv_1_1QRCodeDetector.html): 다중 QR 해독.
 - [OpenCV VideoCapture 속성](https://docs.opencv.org/4.x/d4/d15/group__videoio__flags__base.html): FFmpeg 열기/읽기 타임아웃.
 
-다음 단계는 이 출발 방향을 미션 상태 관리기로 전달하고, 보정값 0인 초음파 30cm 정지 단계를 별도로 연결하는 것입니다.
+다음 단계는 이 출발 방향을 미션 상태 관리기로 전달하고, 보정값 0인 초음파 36cm 정지 단계를 별도로 연결하는 것입니다.

@@ -24,7 +24,7 @@ class MissionRuntime:
             'distance_offset_cm': self.config.distance_offset_cm,
             'automatic_motion_enabled': False,
             'implemented_stages': ['qr_recognition'],
-            'pending_stages': ['approach_30cm', 'arm_transfer'],
+            'pending_stages': ['approach_to_target', 'arm_transfer'],
             'detections': [], 'candidate': None, 'consecutive_frames': 0,
             'frames_processed': 0, 'last_frame_time': None, 'last_camera_time': None,
             'error': None,

@@ -1,4 +1,4 @@
-"""Exercise the production QR -> forward -> raw 30cm stop path, without GPIO."""
+"""Exercise the production QR -> forward -> raw 36cm stop path, without GPIO."""
 from dataclasses import replace
 import importlib.util
 from pathlib import Path
@@ -56,7 +56,7 @@ class DirectTests(unittest.TestCase):
 
     def test_constant_forward_then_immediate_raw_stop(self):
         h=Harness()
-        states=[h.echo(d)['state'] for d in [80.,50.,35.,30.1,30.]]
+        states=[h.echo(d)['state'] for d in [80.,50.,40.,36.1,36.]]
         self.assertEqual(states,['DRIVING']*4+['STOPPED_WAIT'])
         self.assertEqual([x for x in h.drive.commands if x[0]=='forward'],[('forward',40)])
         self.assertEqual(h.drive.commands[-1],('stop',0))
@@ -64,13 +64,13 @@ class DirectTests(unittest.TestCase):
 
     def test_near_echo_stops_despite_large_distance_jump(self):
         h=Harness();h.echo(80.)
-        state=h.echo(29.8)
+        state=h.echo(35.8)
         self.assertEqual(state['state'],'STOPPED_WAIT')
         self.assertIsNone(state['error'])
         self.assertEqual(state['stop_reason'],'TARGET_DISTANCE_REACHED')
 
     def test_already_at_target_never_drives(self):
-        for distance in [30.,29.,20.]:
+        for distance in [36.,35.,20.]:
             h=Harness();state=h.echo(distance)
             self.assertEqual(state['state'],'STOPPED_WAIT')
             self.assertNotIn('forward',[x[0] for x in h.drive.commands])
@@ -114,13 +114,13 @@ class DirectTests(unittest.TestCase):
         h=Harness();h.echo(80.)
         h.qr.update(state='ERROR',first_direction='RIGHT',error='camera offline')
         self.assertEqual(h.echo(60.)['state'],'DRIVING')
-        self.assertEqual(h.echo(30.)['first_direction'],'LEFT')
+        self.assertEqual(h.echo(36.)['first_direction'],'LEFT')
 
     def test_stop_and_cancel_do_not_restart(self):
         for cancel in [False,True]:
             h=Harness();h.echo(80.)
             if cancel: h.controller.cancel()
-            else: h.echo(30.)
+            else: h.echo(36.)
             commands=list(h.drive.commands)
             h.echo(80.)
             self.assertEqual(h.drive.commands,commands)
@@ -131,7 +131,7 @@ class DirectTests(unittest.TestCase):
         h.controller.arm=SimpleNamespace(profile=SimpleNamespace(calibrated=True),
                                          snapshot=lambda:dict(state='IDLE'))
         h.echo(80.)
-        self.assertEqual(h.echo(30.)['state'],'VERIFY_STOP')
+        self.assertEqual(h.echo(36.)['state'],'VERIFY_STOP')
         self.assertEqual(h.drive.commands[-1],('stop',0))
         self.assertFalse(h.controller.snapshot()['arm_motion_enabled'])
 
@@ -141,8 +141,8 @@ class DirectTests(unittest.TestCase):
             h.controller.cfg=replace(h.controller.cfg,arm_enabled=True)
             driver=test_arm.FakeArm()
             h.controller.arm=test_arm.ArmSequence(driver,test_arm.calibrated_profile(),clock=lambda:h.time)
-            h.echo(80.);h.echo(30.)
-            for _ in range(20): h.echo(29.9)
+            h.echo(80.);h.echo(36.)
+            for _ in range(20): h.echo(35.9)
             self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
             wheel_count=len(h.drive.commands)
             for _ in range(4000):
