@@ -44,6 +44,16 @@ class DirectTests(unittest.TestCase):
             self.assertEqual(state['first_direction'],direction)
             self.assertEqual(h.drive.commands,[('stop',0),('steer',0),('forward',40)])
 
+    def test_echo_published_during_snapshot_is_not_rejected_as_future(self):
+        h=Harness()
+        def latest():
+            h.time+=.01
+            return dict(distance_cm=80.,captured_at=h.time)
+        h.controller.read_sample=latest
+        h.controller.step()
+        self.assertEqual(h.controller.snapshot()['state'],'DRIVING')
+        self.assertIn(('forward',40),h.drive.commands)
+
     def test_constant_forward_then_immediate_raw_stop(self):
         h=Harness()
         states=[h.echo(d)['state'] for d in [80.,50.,35.,30.1,30.]]

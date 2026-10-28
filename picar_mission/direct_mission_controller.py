@@ -20,6 +20,9 @@ class DirectMissionController(MissionController):
 
     def _read_distance(self, now):
         sample = self.read_sample()
+        # A sensor thread may publish during the snapshot call. Compare time
+        # after acquiring the sample, not before, so a fresh echo is not future.
+        now = max(now,self.clock())
         if sample is None:
             raise SensorFault('NO_DISTANCE_SAMPLE')
         try:
@@ -64,7 +67,7 @@ class DirectMissionController(MissionController):
                 self.started_at = now
                 self._state('DRIVING',now)
 
-            distance = self._read_distance(max(now,self.clock()))
+            distance = self._read_distance(now)
             if distance <= self.cfg.target_distance_cm:
                 self._stop()
                 self.data['stop_reason'] = 'TARGET_DISTANCE_REACHED'
