@@ -12,20 +12,20 @@ TERMINAL = frozenset({'STOPPED_WAIT','COMPLETE','ERROR','CANCELLED','DISABLED'})
 
 
 class MissionController:
-    def __init__(self, config, drive, read_sample, qr_snapshot, clock=time.monotonic, arm_sequence=None):
+    def __init__(self, config, drive, read_sample, qr_snapshot, clock=time.monotonic, arm_sequence=None, _precision=True):
         self.cfg,self.drive,self.read_sample,self.qr_snapshot = config,drive,read_sample,qr_snapshot
         self.clock = clock
         self.arm = arm_sequence
         self.lock = threading.RLock()
         self.stop_event = threading.Event()
         self.worker = None
-        self.filter = DistanceFilter(config)
-        self.policy = Approach(config)
+        self.filter = DistanceFilter(config) if _precision else None
+        self.policy = Approach(config) if _precision else None
         self.started_at = None
         self.stop_at = None
         self.progress_at = None
         self.progress_distance = None
-        self.verify_values = deque(maxlen=config.stop_samples)
+        self.verify_values = deque(maxlen=config.stop_samples) if _precision else None
         self.stable_since = None
         self.state_at = clock()
         self.data = dict(state='WAIT_QR' if config.auto_approach_enabled else 'DISABLED',

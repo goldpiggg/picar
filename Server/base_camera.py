@@ -29,7 +29,7 @@ class CameraEvent(object):
         now = time.time()
         remove = None
         for ident, event in list(self.events.items()):
-            if not event[0].isSet():
+            if not event[0].is_set():
                 event[0].set()
                 event[1] = now
             else:
@@ -43,27 +43,43 @@ class CameraEvent(object):
 
 
 class BaseCamera(object):
+    STARTUP_TIMEOUT_SECONDS = 15
+    FRAME_TIMEOUT_SECONDS = 5
     error = None
     thread = None
     frame = None  
     last_access = 0 
     event = CameraEvent()
+    ready = threading.Event()
+    thread_lock = threading.Lock()
 
     def __init__(self):
-        if BaseCamera.thread is None:
-            BaseCamera.error = None
-            BaseCamera.last_access = time.time()
-
-            BaseCamera.thread = threading.Thread(target=self._thread)
-            BaseCamera.thread.daemon = True
-            BaseCamera.thread.start()
-            while self.get_frame() is None:
-                time.sleep(0)
+        with BaseCamera.thread_lock:
+            if BaseCamera.thread is None:
+                BaseCamera.error = None
+                BaseCamera.frame = None
+                BaseCamera.last_access = time.time()
+                BaseCamera.event = CameraEvent()
+                BaseCamera.ready = threading.Event()
+                BaseCamera.thread = threading.Thread(target=self._thread, daemon=True)
+                BaseCamera.thread.start()
+            ready = BaseCamera.ready
+        # Device opening/format negotiation can take longer than normal frame
+        # delivery. A separate event also preserves errors raised immediately,
+        # before a browser's per-client frame event has been registered.
+        if not ready.wait(self.STARTUP_TIMEOUT_SECONDS):
+            raise RuntimeError(
+                'Camera startup timeout (%g seconds); check camera_source and camera ownership'
+                % self.STARTUP_TIMEOUT_SECONDS)
+        if BaseCamera.error is not None:
+            raise RuntimeError('Camera capture failed: ' + str(BaseCamera.error))
 
     def get_frame(self):
         BaseCamera.last_access = time.time()
-        if not BaseCamera.event.wait():
-            raise RuntimeError('Camera frame timeout (5 seconds)')
+        if BaseCamera.error is not None:
+            raise RuntimeError('Camera capture failed: ' + str(BaseCamera.error))
+        if not BaseCamera.event.wait(self.FRAME_TIMEOUT_SECONDS):
+            raise RuntimeError('Camera frame timeout (%g seconds)' % self.FRAME_TIMEOUT_SECONDS)
         BaseCamera.event.clear()
         if BaseCamera.error:
             raise RuntimeError('Camera capture failed: ' + str(BaseCamera.error))
@@ -79,11 +95,18 @@ class BaseCamera(object):
         try:
             frames_iterator = cls.frames()
             for frame in frames_iterator:
+                if frame is None:
+                    continue
                 BaseCamera.frame = frame
                 BaseCamera.event.set()
+                BaseCamera.ready.set()
                 time.sleep(0)
         except Exception as exc:
             BaseCamera.error = exc
         finally:
+            if BaseCamera.frame is None and BaseCamera.error is None:
+                BaseCamera.error = RuntimeError('Camera stream ended before the first frame')
             BaseCamera.event.set()
-            BaseCamera.thread = None
+            BaseCamera.ready.set()
+            with BaseCamera.thread_lock:
+                BaseCamera.thread = None

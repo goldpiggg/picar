@@ -89,19 +89,39 @@ class DirectTests(unittest.TestCase):
                        dict(distance_cm=200.,captured_at=1.),
                        dict(distance_cm=80.,captured_at=0.)]:
             h=Harness();h.time=1.;h.sample=sample;h.controller.step()
-            self.assertEqual(h.controller.snapshot()['state'],'ERROR')
+            self.assertEqual(h.controller.snapshot()['state'],'WAIT_DISTANCE')
             self.assertNotIn('forward',[x[0] for x in h.drive.commands])
 
-    def test_sensor_failure_after_forward_stops(self):
+    def test_sensor_failure_pauses_then_recovers_before_target(self):
         h=Harness();h.echo(80.);state=h.echo(None)
-        self.assertEqual(state['state'],'ERROR')
+        self.assertEqual(state['state'],'WAIT_DISTANCE')
         self.assertEqual(h.drive.commands[-1],('stop',0))
+        self.assertFalse(state['target_stop_latched'])
+        self.assertEqual(h.echo(70.)['state'],'DRIVING')
+        self.assertEqual(h.drive.commands[-1],('forward',40))
+
+    def test_permanent_sensor_failure_stays_stopped_and_times_out(self):
+        h=Harness();h.echo(80.);h.echo(None)
+        state=h.echo(None,dt=3.1)
+        self.assertEqual(state['state'],'ERROR')
+        self.assertIn('DISTANCE_RECOVERY_TIMEOUT',state['error'])
+        self.assertEqual(h.drive.commands[-1],('stop',0))
+
+    def test_sensor_recovery_inside_target_stops_permanently(self):
+        h=Harness();h.echo(80.);h.echo(None)
+        state=h.echo(34.)
+        self.assertEqual(state['state'],'STOPPED_WAIT')
+        self.assertTrue(state['target_stop_latched'])
+        commands=list(h.drive.commands)
+        h.echo(80.)
+        self.assertEqual(h.drive.commands,commands)
 
     def test_half_second_sensor_budget_is_separate_from_legacy_filter(self):
         h=Harness();h.echo(80.);h.time+=.3;h.controller.step()
         self.assertEqual(h.controller.snapshot()['state'],'DRIVING')
         h.time+=.21;h.controller.step()
-        self.assertEqual(h.controller.snapshot()['error'],'STALE_DISTANCE_SAMPLE')
+        self.assertEqual(h.controller.snapshot()['state'],'WAIT_DISTANCE')
+        self.assertEqual(h.controller.snapshot()['distance_wait_reason'],'STALE_DISTANCE_SAMPLE')
         self.assertEqual(h.drive.commands[-1],('stop',0))
 
     def test_no_progress_gate_and_bounded_total_runtime(self):
@@ -125,15 +145,19 @@ class DirectTests(unittest.TestCase):
             h.echo(80.)
             self.assertEqual(h.drive.commands,commands)
 
-    def test_calibrated_arm_still_uses_stationary_handoff(self):
+    def test_arm_wait_ignores_distance_band_and_starts_after_delay(self):
         h=Harness()
         h.controller.cfg=replace(h.controller.cfg,arm_enabled=True)
-        h.controller.arm=SimpleNamespace(profile=SimpleNamespace(calibrated=True),
-                                         snapshot=lambda:dict(state='IDLE'))
+        driver=test_arm.FakeArm()
+        h.controller.arm=test_arm.ArmSequence(driver,test_arm.calibrated_profile(),clock=lambda:h.time)
         h.echo(80.)
-        self.assertEqual(h.echo(36.)['state'],'VERIFY_STOP')
+        self.assertEqual(h.echo(36.)['state'],'ARM_WAIT')
         self.assertEqual(h.drive.commands[-1],('stop',0))
         self.assertFalse(h.controller.snapshot()['arm_motion_enabled'])
+        self.assertEqual(h.echo(34.,dt=.99)['state'],'ARM_WAIT')
+        self.assertEqual(driver.writes,[])
+        self.assertEqual(h.echo(None,dt=.02)['state'],'ARM_TRANSFER')
+        self.assertEqual(h.controller.arm.state,'MOVING')
 
     def test_optional_calibrated_arm_completes_both_transfers_after_direct_stop(self):
         for direction in ['LEFT','RIGHT']:
@@ -142,9 +166,12 @@ class DirectTests(unittest.TestCase):
             driver=test_arm.FakeArm()
             h.controller.arm=test_arm.ArmSequence(driver,test_arm.calibrated_profile(),clock=lambda:h.time)
             h.echo(80.);h.echo(36.)
-            for _ in range(20): h.echo(35.9)
-            self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
             wheel_count=len(h.drive.commands)
+            def forbidden(): raise AssertionError('No sensor/camera reads after target stop')
+            h.controller.read_sample=forbidden
+            h.controller.qr_snapshot=forbidden
+            for _ in range(20): h.echo(20.)
+            self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
             for _ in range(4000):
                 h.time+=.05;h.controller.step()
                 if h.controller.snapshot()['state']=='COMPLETE': break
@@ -174,6 +201,14 @@ class DirectTests(unittest.TestCase):
         controller.step()
         self.assertAlmostEqual(move.motor1.throttle,-.4)
         self.assertAlmostEqual(move.motor2.throttle,-.4)
+        self.assertEqual(steering,[(0,0)])
+        controller.read_sample=lambda:dict(distance_cm=36.,captured_at=1.)
+        controller.step()
+        self.assertTrue(drive.locked)
+        self.assertEqual(move.motor1.throttle,0)
+        self.assertEqual(move.motor2.throttle,0)
+        with self.assertRaisesRegex(RuntimeError,'DRIVE_LOCKED_AFTER_STOP'): drive.forward(40)
+        with self.assertRaisesRegex(RuntimeError,'DRIVE_LOCKED_AFTER_STOP'): drive.straight()
         self.assertEqual(steering,[(0,0)])
 
     @unittest.skipUnless(importlib.util.find_spec('cv2'),'OpenCV unavailable')

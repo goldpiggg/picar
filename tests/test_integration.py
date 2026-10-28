@@ -1,5 +1,6 @@
 """Exercise actual QR worker and camera bridge without GPIO or a real webcam."""
 import ast
+import json
 import importlib.util
 from pathlib import Path
 import sys
@@ -24,7 +25,8 @@ class ConfigTests(unittest.TestCase):
     def test_bad_settings_rejected(self):
         for content in ['{"required_frames":0}', '{"hold_seconds":-1}',
                         '{"qr_enabled":"yes"}', '{"camera_backend":"other"}',
-                        '{"target_distance_cm":NaN}']:
+                        '{"target_distance_cm":NaN}',
+                        '{"arm_enabled":true,"arm_start_delay_seconds":-1}']:
             with self.subTest(content=content), tempfile.TemporaryDirectory() as d:
                 p = Path(d) / 'config.json'
                 p.write_text(content)
@@ -35,6 +37,38 @@ class ConfigTests(unittest.TestCase):
         text = unit_text('/home/pi/picar kit')
         self.assertIn('ExecStart=/usr/bin/python3 "/home/pi/picar kit/Server/WebServer.py"', text)
         self.assertNotIn('main.py', text)
+
+    def test_unused_precision_settings_cannot_block_direct_drive(self):
+        from picar_mission.direct_mission_controller import DirectMissionController
+        from test_approach import Drive
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'config.json'
+            path.write_text(json.dumps(dict(target_distance_cm=60.,slow_distance_cm=5.,
+                distance_filter_size='unused',stop_samples=None,stop_timeout_seconds=0.,
+                arm_start_delay_seconds='unused')))
+            cfg=load_config(path)
+        drive=Drive()
+        controller=DirectMissionController(cfg,drive,
+            lambda:dict(distance_cm=80.,captured_at=1.),
+            lambda:dict(first_direction='LEFT'),clock=lambda:1.)
+        controller.step()
+        self.assertIn(('forward',40),drive.commands)
+
+    def test_disabled_arm_settings_are_not_loaded_and_angles_remain_visible(self):
+        from dataclasses import replace
+        import test_approach
+        bridge=test_approach.OfficialConnectionTests().load_bridge()
+        bridge.config=replace(bridge.config,auto_approach_enabled=False)
+        calls=[]
+        servo=SimpleNamespace(nowPos=[90.]*8,stopWiggle=lambda:calls.append('hold'))
+        move=SimpleNamespace(motorStop=lambda:calls.append('stop'))
+        with patch.object(bridge,'load_profile',side_effect=AssertionError('disabled arm must not load')):
+            bridge.configure(move,servo,SimpleNamespace(read_sample=lambda:None))
+        self.assertIsNone(bridge.controller.arm)
+        self.assertEqual(bridge.status()['commanded_servo_angles_deg'],
+                         dict(base=90.,shoulder=90.,elbow=90.,gripper=90.))
+        bridge.cancel()
+        self.assertIn('hold',calls)
 
 
 class FakeReader:

@@ -17,21 +17,31 @@ runtime = MissionRuntime(config)
 controller = None
 _lock = RLock()
 _cancelled = False
+_servo = None
 
 
 class DriveAdapter:
     """Reuse already initialized official objects; channel 0 is steering only."""
     def __init__(self, move, steering):
         self.move,self.steering = move,steering
+        self.locked = False
 
     def stop(self):
         self.move.motorStop()
 
     def straight(self):
+        if self.locked:
+            raise RuntimeError('DRIVE_LOCKED_AFTER_STOP')
         self.steering.moveAngle(0,0)
 
     def forward(self, speed):
+        if self.locked:
+            raise RuntimeError('DRIVE_LOCKED_AFTER_STOP')
         self.move.move(speed,1,'mid')
+
+    def lock(self):
+        self.locked = True
+        self.stop()
 
 
 class ArmAdapter:
@@ -57,16 +67,17 @@ def automatic_enabled():
 
 
 def configure(move, steering, ultrasound):
-    global controller
+    global controller, _servo
     with _lock:
         if controller is not None:
             return
         move.motorStop()
-        arm = ArmSequence(ArmAdapter(steering),load_profile())
+        _servo = steering
+        arm = ArmSequence(ArmAdapter(steering),load_profile()) if config.arm_enabled else None
         controller = DirectMissionController(config,DriveAdapter(move,steering),
                                              ultrasound.read_sample,runtime.snapshot,arm_sequence=arm)
         if _cancelled:
-            controller.cancel()
+            cancel()
         else:
             controller.start()
 
@@ -79,7 +90,7 @@ def status():
     # Memory-only readback of commanded servo angles, useful when teaching poses
     # with the existing manual web controls. This is not physical position feedback.
     try:
-        angles = controller.arm.driver.read_angles()
+        angles = ArmAdapter(_servo).read_angles() if _servo is not None else None
     except (AttributeError,TypeError,IndexError):
         angles = None
     if not config.auto_approach_enabled:
@@ -101,6 +112,8 @@ def cancel(reason='USER_STOP'):
         _cancelled = True
         if controller is not None:
             controller.cancel(reason)
+        if _servo is not None and getattr(controller,'arm',None) is None:
+            ArmAdapter(_servo).hold()
 
 
 def allow_command(command, response=None):
@@ -125,6 +138,8 @@ def allow_command(command, response=None):
 def shutdown():
     if controller is not None:
         controller.stop()
+    if _servo is not None and getattr(controller,'arm',None) is None:
+        ArmAdapter(_servo).hold()
     runtime.stop()
 
 
