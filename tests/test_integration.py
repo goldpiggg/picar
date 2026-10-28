@@ -44,7 +44,7 @@ class FakeReader:
 
 class RuntimeTests(unittest.TestCase):
     def test_direction_reaches_shared_state_without_motion(self):
-        runtime = MissionRuntime(clock=lambda: .5)
+        runtime = MissionRuntime(MissionConfig(required_frames=3,hold_seconds=.35),clock=lambda: .5)
         for i, t in enumerate([.05, .25, .45]):
             direction = runtime.process_frame('RIGHT', t, i, FakeReader())
         self.assertEqual(direction, 'RIGHT')

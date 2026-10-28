@@ -92,6 +92,7 @@ def status():
 STOP_COMMANDS = frozenset({'stop','DS','TS','LRstop','armstop','HAstop',
                            'stopCV','automaticOff','trackLineOff','steadyCameraOff',
                            'keepDistanceOff'})
+BUTTON_RELEASE_COMMANDS = frozenset({'DS','TS','LRstop','armstop','HAstop'})
 
 
 def cancel(reason='USER_STOP'):
@@ -107,7 +108,12 @@ def allow_command(command, response=None):
     if not config.auto_approach_enabled:
         return True
     if command in STOP_COMMANDS:
-        cancel()
+        # The old UI sends these on releasing even a blocked manual button.
+        # Before QR start, releasing an arrow must not cancel the future mission.
+        # Explicit stop/HTTP stop still cancel; all stop commands cancel in motion.
+        waiting = controller is None or controller.snapshot()['state']=='WAIT_QR'
+        if command not in BUTTON_RELEASE_COMMANDS or not waiting:
+            cancel()
     if command == 'get_info':
         return True
     if response is not None:

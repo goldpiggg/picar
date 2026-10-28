@@ -137,10 +137,11 @@ class MissionTests(unittest.TestCase):
         self.assertEqual(h.controller.snapshot()['error'],'STALE_DISTANCE_SAMPLE')
         self.assertEqual(h.drive.commands[-1],('stop',0))
 
-    def test_camera_failure_during_driving_stops(self):
+    def test_camera_failure_after_qr_keeps_ultrasonic_approach(self):
         h=Harness();h.start();h.qr['state']='ERROR';h.qr['error']='camera disconnected';h.echo(79.)
-        self.assertEqual(h.controller.snapshot()['state'],'ERROR')
-        self.assertEqual(h.drive.commands[-1],('stop',0))
+        self.assertEqual(h.controller.snapshot()['state'],'APPROACH')
+        self.assertIsNone(h.controller.snapshot()['error'])
+        self.assertGreater(h.controller.snapshot()['command_speed'],0)
 
     def test_low_pwm_stall_times_out(self):
         h=Harness(config=replace(MissionConfig(),progress_timeout_seconds=.3));h.start()
@@ -202,7 +203,8 @@ class OfficialConnectionTests(unittest.TestCase):
                         'findColor','scan','speech','armup','grab','home','PWMINIT','wsB 99']:
             with self.subTest(command=command): self.assertFalse(b.allow_command(command,{}))
         self.assertTrue(b.allow_command('get_info',{}))
-        self.assertFalse(b.allow_command('DS',{}));self.assertTrue(b._cancelled)
+        self.assertFalse(b.allow_command('DS',{}));self.assertFalse(b._cancelled)
+        self.assertFalse(b.allow_command('stop',{}));self.assertTrue(b._cancelled)
 
     def test_websocket_does_not_reinitialize_motor_in_auto_mode(self):
         source=(ROOT/'Server/WebServer.py').read_text(encoding='utf-8')

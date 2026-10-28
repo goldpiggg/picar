@@ -32,6 +32,7 @@ class MissionController:
                          first_direction=None, target_distance_cm=config.target_distance_cm,
                          distance_offset_cm=config.distance_offset_cm, command_speed=0,
                          distance_cm=None, raw_distance_cm=None, error=None,
+                         distance_wait_reason=None, distance_samples=0,
                          automatic_motion_enabled=config.auto_approach_enabled,
                          approach_complete=False, drive_locked=True, arm_motion_enabled=False,
                          implemented_stages=['qr_recognition','approach_30cm'],
@@ -89,10 +90,10 @@ class MissionController:
             if state in TERMINAL or self.stop_event.is_set():
                 return
             qr = self.qr_snapshot()
-            if qr['state']=='ERROR':
+            if state=='WAIT_QR' and qr['state']=='ERROR':
                 raise SensorFault('QR_CAMERA_ERROR: '+str(qr.get('error')))
-            if state!='WAIT_QR' and not qr.get('camera_fresh',False):
-                raise SensorFault('CAMERA_FRAME_TIMEOUT')
+            # Once the direction is latched, this fixed-pose mission navigates
+            # by ultrasound. A video interruption must not cancel that motion.
             if state=='ARM_TRANSFER':
                 # The head/sensor may rotate with the arm: do not use side
                 # echoes as monitor distance. All wheel commands remain locked.
@@ -115,17 +116,29 @@ class MissionController:
                 self.drive.straight()
                 self._state('CHECK_DISTANCE',now)
                 state = 'CHECK_DISTANCE'
+            if state=='CHECK_DISTANCE' and now-self.state_at > self.cfg.sensor_warmup_seconds:
+                raise SensorFault('SENSOR_WARMUP_TIMEOUT')
             sample = self.read_sample()  # Non-blocking snapshot, not a new GPIO ping.
-            if sample is None and state=='CHECK_DISTANCE' and now-self.state_at < self.cfg.sensor_warmup_seconds:
+            try:
+                reading = self.filter.update(sample,max(now,self.clock()))
+            except SensorFault as exc:
+                if state!='CHECK_DISTANCE':
+                    raise  # Never drive on failed/stale echoes.
+                # Before moving, allow the sensor to recover within its startup
+                # budget. Only distinct valid echoes may fill the filter again.
+                reason = str(exc)
+                if self.data['distance_wait_reason']!=reason:
+                    emit('waiting_for_distance',reason=reason)
+                self.filter = DistanceFilter(self.cfg)
+                self.data.update(distance_wait_reason=reason,distance_samples=0,
+                                 distance_cm=None,raw_distance_cm=None)
                 return
-            reading = self.filter.update(sample,max(now,self.clock()))
             self.data.update(distance_cm=round(reading.filtered_cm,3),
-                             raw_distance_cm=round(reading.raw_cm,3))
+                             raw_distance_cm=round(reading.raw_cm,3),
+                             distance_wait_reason=None,distance_samples=len(self.filter.values))
             if reading.raw_cm < self.cfg.target_distance_cm-self.cfg.stop_tolerance_cm:
                 raise SensorFault('PASSED_STOP_BAND')
             if state=='CHECK_DISTANCE':
-                if now-self.state_at > self.cfg.sensor_warmup_seconds:
-                    raise SensorFault('SENSOR_WARMUP_TIMEOUT')
                 if not reading.ready or now-self.state_at < self.cfg.steering_settle_seconds:
                     return
                 self.started_at = now
