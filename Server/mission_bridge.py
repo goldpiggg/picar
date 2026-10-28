@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
 
 from picar_mission.config import load_config
 from picar_mission.runtime import MissionRuntime
-from picar_mission.mission_controller import MissionController
+from picar_mission.direct_mission_controller import DirectMissionController
 from picar_mission.arm_sequence import ArmSequence, load_profile
 from threading import RLock
 
@@ -63,8 +63,8 @@ def configure(move, steering, ultrasound):
             return
         move.motorStop()
         arm = ArmSequence(ArmAdapter(steering),load_profile())
-        controller = MissionController(config,DriveAdapter(move,steering),
-                                       ultrasound.read_sample,runtime.snapshot,arm_sequence=arm)
+        controller = DirectMissionController(config,DriveAdapter(move,steering),
+                                             ultrasound.read_sample,runtime.snapshot,arm_sequence=arm)
         if _cancelled:
             controller.cancel()
         else:

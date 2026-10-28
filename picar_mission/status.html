@@ -8,7 +8,7 @@ body{font:16px/1.6 system-ui,sans-serif;max-width:850px;margin:24px auto;padding
 img{width:100%;max-width:640px;height:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#e7eef0;padding:16px}a{color:#126079}
 </style>
 <h1>PiCar QR → 30cm 정지</h1>
-<p>QR 방향 확정 후 자동 접근·정지합니다. 팔은 활성화와 각도 보정 확인이 모두 완료된 경우에만 물체 이동 순서를 실행합니다. 기본 임시값 상태에서는 정지 후 대기합니다.</p>
+<p>기본 동작은 LEFT/RIGHT QR 1회 인식 → 일정 속도 직진 → 초음파가 30cm 이하면 정지입니다. 기본 설정에서는 팔을 움직이지 않고 정지 후 대기합니다.</p>
 <button id="stop" type="button" style="font:inherit;padding:12px 24px;background:#a91d25;color:white;border:0">전체 동작 중지</button>
 <p id="stop-result" role="status"></p>
 <p><a href="/">기본 웹 제어</a> · <a href="/mission/status">상태 JSON</a></p>

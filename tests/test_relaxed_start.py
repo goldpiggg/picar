@@ -1,4 +1,5 @@
 """Start reliably with noisy startup echoes, without bypassing motion checks."""
+from dataclasses import replace
 from types import SimpleNamespace
 import unittest
 from picar_mission.config import MissionConfig, load_config
@@ -11,7 +12,8 @@ class RelaxedStartTests(unittest.TestCase):
     def test_repository_and_fallback_settings_agree(self):
         self.assertEqual(load_config(),MissionConfig())
         cfg=load_config()
-        self.assertEqual((cfg.required_frames,cfg.hold_seconds),(2,.15))
+        self.assertEqual((cfg.required_frames,cfg.hold_seconds),(1,0.))
+        self.assertEqual(cfg.direct_speed,40)
         self.assertEqual((cfg.target_distance_cm,cfg.stop_tolerance_cm),(30.,1.))
         self.assertEqual(cfg.distance_max_age_seconds,.25)
         self.assertFalse(cfg.arm_enabled)
@@ -22,7 +24,7 @@ class RelaxedStartTests(unittest.TestCase):
             def detect(self, frame):
                 now[0]+=1.
                 return [{'text':frame}]
-        runtime=MissionRuntime(load_config(),clock=lambda:now[0])
+        runtime=MissionRuntime(replace(load_config(),required_frames=2,hold_seconds=.15),clock=lambda:now[0])
         self.assertIsNone(runtime.process_frame('LEFT',0.,1,Reader()))
         now[0]=1.1
         self.assertEqual(runtime.process_frame('LEFT',1.1,2,Reader()),'LEFT')

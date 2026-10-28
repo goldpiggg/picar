@@ -22,7 +22,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(c.camera_backend, 'usb')
 
     def test_bad_settings_rejected(self):
-        for content in ['{"required_frames":1}', '{"hold_seconds":-1}',
+        for content in ['{"required_frames":0}', '{"hold_seconds":-1}',
                         '{"qr_enabled":"yes"}', '{"camera_backend":"other"}',
                         '{"target_distance_cm":NaN}']:
             with self.subTest(content=content), tempfile.TemporaryDirectory() as d:
@@ -57,7 +57,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(runtime.snapshot()['first_direction'], 'RIGHT')
 
     def test_stale_frames_and_duplicate_sequence_do_not_confirm(self):
-        runtime = MissionRuntime(clock=lambda: 10.)
+        runtime = MissionRuntime(MissionConfig(required_frames=3,hold_seconds=.35),clock=lambda: 10.)
         for i in range(5): runtime.process_frame('LEFT', 0, i, FakeReader())
         runtime.process_frame('LEFT', 9.9, 9, FakeReader())
         for _ in range(5): runtime.process_frame('LEFT', 9.9, 9, FakeReader())
