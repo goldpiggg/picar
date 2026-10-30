@@ -89,7 +89,7 @@ class ApproachTests(unittest.TestCase):
         return DistanceReading(raw,raw if filtered is None else filtered,1.,1,True,True)
 
     def test_raw_distance_stops_before_delayed_median(self):
-        self.assertEqual(Approach(MissionConfig()).command(self.reading(36.,38.)),0)
+        self.assertEqual(Approach(MissionConfig()).command(self.reading(35.,37.)),0)
 
     def test_speed_decreases_and_never_reaccelerates(self):
         p=Approach(MissionConfig())

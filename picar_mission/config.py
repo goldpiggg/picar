@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 @dataclass(frozen=True)
 class MissionConfig:
     qr_enabled: bool = True
-    target_distance_cm: float = 36.0
+    target_distance_cm: float = 35.0
     distance_offset_cm: float = 0.0
     camera_backend: str = 'usb'
     camera_source: object = 0
@@ -19,7 +19,7 @@ class MissionConfig:
     max_gap_seconds: float = 1.5
     max_frame_age_seconds: float = 1.5
     auto_approach_enabled: bool = True
-    direct_speed: int = 40
+    direct_speed: int = 35
     direct_distance_max_age_seconds: float = 0.5
     direct_distance_retry_seconds: float = 3.0
     arm_start_delay_seconds: float = 1.0
@@ -45,8 +45,16 @@ class MissionConfig:
 
 
 def load_config(path=None):
+    use_drive_settings = path is None
     path = ROOT / 'mission_config.json' if path is None else Path(path)
     values = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+    if use_drive_settings:
+        drive_path = ROOT / 'drive_settings.json'
+        if drive_path.exists():
+            overrides = json.loads(drive_path.read_text(encoding='utf-8'))
+            if not isinstance(overrides, dict) or set(overrides) - {'target_distance_cm', 'direct_speed'}:
+                raise ValueError('drive_settings.json accepts target_distance_cm and direct_speed only')
+            values.update(overrides)
     cfg = MissionConfig(**values)
     if type(cfg.qr_enabled) is not bool:
         raise ValueError('qr_enabled must be a boolean')

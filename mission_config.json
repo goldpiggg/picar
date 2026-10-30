@@ -1,6 +1,6 @@
 {
   "qr_enabled": true,
-  "target_distance_cm": 36.0,
+  "target_distance_cm": 35.0,
   "distance_offset_cm": 0.0,
   "camera_backend": "usb",
   "camera_source": 0,
@@ -9,7 +9,7 @@
   "max_gap_seconds": 1.5,
   "max_frame_age_seconds": 1.5,
   "auto_approach_enabled": true,
-  "direct_speed": 40,
+  "direct_speed": 35,
   "direct_distance_max_age_seconds": 0.5,
   "direct_distance_retry_seconds": 3.0,
   "arm_start_delay_seconds": 1.0,

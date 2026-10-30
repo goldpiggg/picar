@@ -2,7 +2,7 @@
 
 제조사 코드 전체와 QR·주행·팔 모듈을 포함합니다. **실행 파일은 기존 `Server/WebServer.py`입니다. 새 main.py는 없습니다.**
 
-기본 동작을 **LEFT/RIGHT QR 1회 인식 → 일정 출력으로 직진 → 초음파 36cm 이하에서 정지**로 단순화했습니다. 방향은 처음 인식한 값으로 유지합니다. 기본 팔 동작은 꺼져 있습니다.
+기본 동작을 **LEFT/RIGHT QR 1회 인식 → 일정 출력으로 직진 → 초음파 35cm 이하에서 정지**로 단순화했습니다. 방향은 처음 인식한 값으로 유지합니다. 기본 팔 동작은 꺼져 있습니다.
 
 ## 현재 실행 흐름
 
@@ -11,13 +11,13 @@ WAIT_QR → DRIVING → STOPPED_WAIT
 ```
 
 - 같은 QR의 연속 프레임이나 추가 확인 시간을 요구하지 않습니다. LEFT/RIGHT 동시 인식, 같은 출발 QR 여러 개, PICK/PLACE만 보이는 경우에는 출발하지 않습니다.
-- 정상 초음파 값 하나가 36cm보다 크면 바로 전진 명령을 냅니다. 세 번 측정·중앙값·급변 검사·조향 안정 대기·진행량 검사를 출발 조건으로 쓰지 않습니다.
-- 기본 출력은 `direct_speed=40`입니다. 모터 PWM 명령 0~100의 값이며 cm/s가 아닙니다. 50cm 감속도 적용하지 않습니다.
-- 초음파 값이 36cm 이하이면 즉시 모터 정지 명령 후 `STOPPED_WAIT`에서 대기합니다. 이미 36cm 이내에 있으면 전진하지 않습니다.
-- 정지선 도달 전에 거리값이 누락되거나 잘못되면 즉시 바퀴를 멈추고 `WAIT_DISTANCE`에서 최대 3초 동안 다시 읽습니다. 정상 값이 36cm보다 크면 주행을 이어가고, 36cm 이하면 정지선 도달로 고정합니다. 끝내 회복되지 않으면 `ERROR`로 종료합니다. 주행 최대 시간은 40초입니다.
+- 정상 초음파 값 하나가 35cm보다 크면 바로 전진 명령을 냅니다. 세 번 측정·중앙값·급변 검사·조향 안정 대기·진행량 검사를 출발 조건으로 쓰지 않습니다.
+- 기본 출력은 `direct_speed=35`입니다. 모터 PWM 명령 0~100의 값이며 cm/s가 아닙니다. 50cm 감속도 적용하지 않습니다.
+- 초음파 값이 35cm 이하이면 즉시 모터 정지 명령 후 `STOPPED_WAIT`에서 대기합니다. 이미 35cm 이내에 있으면 전진하지 않습니다.
+- 정지선 도달 전에 거리값이 누락되거나 잘못되면 즉시 바퀴를 멈추고 `WAIT_DISTANCE`에서 최대 3초 동안 다시 읽습니다. 정상 값이 35cm보다 크면 주행을 이어가고, 35cm 이하면 정지선 도달로 고정합니다. 끝내 회복되지 않으면 `ERROR`로 종료합니다. 주행 최대 시간은 40초입니다.
 - QR 방향이 확정되면 카메라 영상 중단은 주행을 취소하지 않습니다. 초음파로 정지합니다.
 
-`approach_complete=true`는 36cm 이하의 측정값을 받고 정지 명령을 보냈다는 뜻입니다. 이때 `target_stop_latched=true`가 되며, 이후 바퀴 전진·조향 명령을 잠급니다. 새 QR이나 거리값으로 잠금을 풀거나 다시 출발하지 않습니다. **기본 모드에는 제동거리 보정과 실제 차체 정지 확인이 없습니다.** 관성으로 더 굴러갈 수 있으므로 실제 정지 위치는 실물에서 확인해야 합니다.
+`approach_complete=true`는 35cm 이하의 측정값을 받고 정지 명령을 보냈다는 뜻입니다. 이때 `target_stop_latched=true`가 되며, 이후 바퀴 전진·조향 명령을 잠급니다. 새 QR이나 거리값으로 잠금을 풀거나 다시 출발하지 않습니다. **기본 모드에는 제동거리 보정과 실제 차체 정지 확인이 없습니다.** 관성으로 더 굴러갈 수 있으므로 실제 정지 위치는 실물에서 확인해야 합니다.
 
 팔을 명시적으로 활성화하고 자세 보정까지 확인한 경우에는 `ARM_WAIT`에서 기본 1초를 기다린 뒤 `ARM_TRANSFER`로 넘어갑니다. 정지 명령 기준과 실제 최종 거리의 차이 때문에 팔이 막히지 않도록, 정지 후에는 초음파를 다시 읽거나 거리 ±1cm·측정값 4개·안정 상태 검사를 하지 않습니다. 팔 동작 중과 완료 뒤에도 바퀴 잠금은 유지합니다. 대기 시간 1초는 임시값이며 실제 정착 시간에 맞춰 조정합니다.
 
@@ -33,7 +33,7 @@ flowchart TD
     R --> D[direct_mission_controller.py]
     D --> U[Ultra.read_sample 현재 거리]
     D --> M[기존 Move 및 조향 채널 0]
-    D --> S[36cm 이하 정지 및 방향 유지]
+    D --> S[35cm 이하 정지 및 방향 유지]
     S --> H[바퀴 잠금 + 팔 활성화·보정된 경우 1초 대기 후 팔 순서]
     B --> P[웹 상태 /mission/status]
 ```
@@ -74,20 +74,39 @@ sudo python3 Server/WebServer.py
 정상 출발 시 터미널에 아래 형태의 로그가 나옵니다.
 
 ```json
-{"event":"drive_command","action":"forward","pwm":40,"distance_cm":80.0}
+{"event":"drive_command","action":"forward","pwm":35,"distance_cm":80.0}
 ```
 
-거리 기준에 도달하면 `action=stop`, `pwm=0` 로그가 나옵니다. 상태 JSON의 `drive_mode=direct`, `state=DRIVING`, `command_speed=40`이면 직접 주행 경로입니다. 전진 로그는 모터 API에 명령을 보냈다는 뜻이며 실제 바퀴 회전을 감지한 결과는 아닙니다. 해당 로그가 있는데 바퀴가 안 돌면 출력·전원·모터 연결을 확인합니다. `ERROR`라면 `error` 항목에 이유가 있습니다.
+거리 기준에 도달하면 `action=stop`, `pwm=0` 로그가 나옵니다. 상태 JSON의 `drive_mode=direct`, `state=DRIVING`, `command_speed=35`이면 직접 주행 경로입니다. 전진 로그는 모터 API에 명령을 보냈다는 뜻이며 실제 바퀴 회전을 감지한 결과는 아닙니다. 해당 로그가 있는데 바퀴가 안 돌면 출력·전원·모터 연결을 확인합니다. `ERROR`라면 `error` 항목에 이유가 있습니다.
 
 ## 설정
 
-설정은 루트 `mission_config.json`에서 읽으며 변경 후 서버를 재시작합니다.
+공통 설정은 루트 `mission_config.json`에서 읽습니다. 거리·속도를 직접 조정할 때는 두 항목만 담은 개인 파일 `drive_settings.json`을 사용합니다. 이 파일의 값이 공통 설정보다 우선하며 Git에서 제외되므로 이후 `git pull`과 충돌하지 않습니다. 변경 후 서버를 재시작합니다.
+
+최초 한 번 개인 파일을 만들고 엽니다. `cp -n`은 기존 개인 파일이 있으면 보존합니다.
+
+```bash
+cd ~/picar
+cp -n drive_settings.example.json drive_settings.json
+nano drive_settings.json
+```
+
+```json
+{
+  "target_distance_cm": 35.0,
+  "direct_speed": 35
+}
+```
+
+`target_distance_cm`는 이동할 길이가 아니라 초음파 센서에서 모니터까지의 남은 거리입니다. 35 → 34로 줄이면 정지 명령을 1cm 더 가까운 지점에서 내립니다. 속도를 함께 바꾸면 관성도 달라지므로 실제 최종 정지 위치가 정확히 1cm 바뀐다고 보장하지는 않습니다. `direct_speed`는 PWM 1~100이며 실제 cm/s가 아닙니다. 이번 기본값은 기존 PWM 40에서 35로 낮췄습니다.
+
+다음부터는 `nano ~/picar/drive_settings.json`으로 숫자만 바꾸고 `Ctrl+O`, Enter, `Ctrl+X` 순서로 저장·종료합니다. 실행 중인 서버를 `Ctrl+C`로 종료한 다음 기존 명령 `sudo python3 Server/WebServer.py`로 다시 실행합니다. `/mission/status`의 `target_distance_cm`과 `configured_speed`에서 적용값을 확인할 수 있습니다. 개인 파일이 없으면 아래 기본값을 사용하며, `load_config(path)`로 파일을 명시한 도구는 해당 파일만 사용합니다.
 
 | 항목 | 기본값 | 의미 |
 |---|---|---|
 | `required_frames` / `hold_seconds` | 1 / 0.0 | QR 1회 인식, 추가 대기 없음 |
-| `direct_speed` | 40 | 직진 PWM 출력, 임시값 |
-| `target_distance_cm` | 36.0 | 이 거리 이하에서 정지 |
+| `direct_speed` | 35 | 직진 PWM 출력, 임시값 |
+| `target_distance_cm` | 35.0 | 이 거리 이하에서 정지 |
 | `distance_offset_cm` | 0.0 | 초음파 거리 보정 |
 | `direct_distance_max_age_seconds` | 0.5 | 사용 가능한 현재 거리값의 최대 나이 |
 | `direct_distance_retry_seconds` | 3.0 | 정지선 도달 전 측정 실패 때 멈춘 채 재측정하는 시간 |
@@ -127,7 +146,7 @@ python3 -m unittest discover -s picar_mission -p 'test_*.py' -v
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-현재 직접 주행 테스트는 원본 QR 프레임 1장으로 출발, 첫 거리 하나로 전진, 일정 출력 유지, 36cm 이하 즉시 정지·바퀴 잠금, 센서 일시 실패 시 정지·회복, 영구 실패 종료, 거리 재검사 없는 팔 연결, 잠금 이후 전진·조향 차단, 제조사 Move.py의 PWM 쓰기 경로를 가상 드라이버로 확인합니다. 카메라 초기화 대기와 사용하지 않는 설정의 독립성도 검사합니다. 실제 GPIO/I2C 하드웨어와 제동거리·속도는 PC 테스트로 검증되지 않습니다.
+현재 직접 주행 테스트는 원본 QR 프레임 1장으로 출발, 첫 거리 하나로 전진, 일정 출력 유지, 35cm 이하 즉시 정지·바퀴 잠금, 센서 일시 실패 시 정지·회복, 영구 실패 종료, 거리 재검사 없는 팔 연결, 잠금 이후 전진·조향 차단, 제조사 Move.py의 PWM 쓰기 경로를 가상 드라이버로 확인합니다. 카메라 초기화 대기와 사용하지 않는 설정의 독립성도 검사합니다. 실제 GPIO/I2C 하드웨어와 제동거리·속도는 PC 테스트로 검증되지 않습니다.
 
 [Adeept 공식 저장소](https://github.com/adeept/Adeept_PiCar-Pro)의 커밋 `7703206c5e9e345c772232c0686e381790b87bb0`을 기준으로 제조사 전체 코드를 포함합니다. 원본 API 키는 환경변수로 바꿨으며 키가 포함된 제조사 과거 이력은 가져오지 않았습니다. 사용자 이력과 원본 저작권 표기는 유지합니다. [변경 기록](docs/UPSTREAM.md), [제조사 원본 README](docs/ADEEPT_README.md)를 참고하세요.
 
