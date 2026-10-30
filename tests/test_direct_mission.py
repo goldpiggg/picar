@@ -17,15 +17,22 @@ import test_arm
 ROOT=Path(__file__).resolve().parent.parent
 
 
+def instant_steering(cfg=None):
+    # Distance tests skip the steering pre-load/settle wait; SteeringTests cover it.
+    return replace(cfg or load_config(),direct_steer_preload_seconds=0.,direct_steer_settle_seconds=0.)
+
+
 class Harness:
-    def __init__(self,direction='LEFT'):
+    def __init__(self,direction='LEFT',cfg=None,gyro=False):
         self.time=0.
         self.sequence=0
         self.sample=None
+        self.yaw=0.
         self.qr=dict(state='DIRECTION_CONFIRMED',first_direction=direction,camera_fresh=False)
         self.drive=test_approach.Drive()
-        self.controller=DirectMissionController(load_config(),self.drive,
-            lambda:self.sample,lambda:self.qr,clock=lambda:self.time)
+        heading=(lambda:None if self.yaw is None else dict(yaw_deg=self.yaw,captured_at=self.time)) if gyro else None
+        self.controller=DirectMissionController(cfg or instant_steering(),self.drive,
+            lambda:self.sample,lambda:self.qr,clock=lambda:self.time,read_heading=heading)
 
     def echo(self,distance,dt=.06):
         self.time+=dt
@@ -42,7 +49,7 @@ class DirectTests(unittest.TestCase):
             state=h.echo(80.)
             self.assertEqual(state['state'],'DRIVING')
             self.assertEqual(state['first_direction'],direction)
-            self.assertEqual(h.drive.commands,[('stop',0),('steer',0),('forward',40)])
+            self.assertEqual(h.drive.commands,[('stop',0),('steer',10.),('steer',0),('forward',40)])
 
     def test_echo_published_during_snapshot_is_not_rejected_as_future(self):
         h=Harness()
@@ -195,13 +202,13 @@ class DirectTests(unittest.TestCase):
         bridge=test_approach.OfficialConnectionTests().load_bridge()
         steering=[]
         drive=bridge.DriveAdapter(move,SimpleNamespace(moveAngle=lambda *args:steering.append(args)))
-        controller=DirectMissionController(load_config(),drive,
+        controller=DirectMissionController(instant_steering(),drive,
             lambda:dict(distance_cm=80.,captured_at=1.),
             lambda:dict(first_direction='LEFT'),clock=lambda:1.)
         controller.step()
         self.assertAlmostEqual(move.motor1.throttle,-.4)
         self.assertAlmostEqual(move.motor2.throttle,-.4)
-        self.assertEqual(steering,[(0,0)])
+        self.assertEqual(steering,[(0,10.),(0,0)])
         controller.read_sample=lambda:dict(distance_cm=36.,captured_at=1.)
         controller.step()
         self.assertTrue(drive.locked)
@@ -209,7 +216,8 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(move.motor2.throttle,0)
         with self.assertRaisesRegex(RuntimeError,'DRIVE_LOCKED_AFTER_STOP'): drive.forward(40)
         with self.assertRaisesRegex(RuntimeError,'DRIVE_LOCKED_AFTER_STOP'): drive.straight()
-        self.assertEqual(steering,[(0,0)])
+        with self.assertRaisesRegex(RuntimeError,'DRIVE_LOCKED_AFTER_STOP'): drive.steer(5)
+        self.assertEqual(steering,[(0,10.),(0,0)])
 
     @unittest.skipUnless(importlib.util.find_spec('cv2'),'OpenCV unavailable')
     def test_single_actual_qr_frame_reaches_production_drive(self):
@@ -225,12 +233,128 @@ class DirectTests(unittest.TestCase):
                 time.sleep(.01)
             self.assertEqual(runtime.snapshot()['first_direction'],'LEFT')
             drive=test_approach.Drive()
-            controller=DirectMissionController(load_config(),drive,
+            controller=DirectMissionController(instant_steering(),drive,
                 lambda:dict(distance_cm=80.,captured_at=time.monotonic()),runtime.snapshot)
             controller.step()
             self.assertIn(('forward',40),drive.commands)
         finally:
             runtime.stop()
+
+
+class SteeringTests(unittest.TestCase):
+    def test_preload_then_center_then_settle_before_forward(self):
+        h=Harness(cfg=load_config())
+        self.assertEqual(h.echo(80.)['state'],'STEER_PRELOAD')
+        self.assertEqual(h.drive.commands,[('stop',0),('steer',10.)])
+        self.assertEqual(h.echo(80.,dt=.15)['state'],'STEER_PRELOAD')
+        self.assertEqual(h.echo(80.,dt=.1)['state'],'STEER_SETTLE')
+        self.assertEqual(h.drive.commands[-1],('steer',0))
+        self.assertEqual(h.echo(80.,dt=.2)['state'],'STEER_SETTLE')
+        self.assertNotIn('forward',[c[0] for c in h.drive.commands])
+        self.assertEqual(h.echo(80.,dt=.15)['state'],'DRIVING')
+        self.assertEqual(h.drive.commands[-1],('forward',40))
+
+    def test_zero_preload_centers_immediately(self):
+        h=Harness(cfg=replace(load_config(),direct_steer_preload_deg=0.))
+        self.assertEqual(h.echo(80.)['state'],'STEER_SETTLE')
+        self.assertEqual(h.drive.commands,[('stop',0),('steer',0)])
+
+    def test_cancel_during_settle_never_drives(self):
+        h=Harness(cfg=load_config());h.echo(80.)
+        h.controller.cancel()
+        for _ in range(10): h.echo(80.,dt=.2)
+        self.assertEqual(h.controller.snapshot()['state'],'CANCELLED')
+        self.assertNotIn('forward',[c[0] for c in h.drive.commands])
+
+    def test_no_gyro_keeps_center_and_reports_off(self):
+        h=Harness()
+        for d in [80.,70.,60.]: h.echo(d)
+        self.assertEqual(h.controller.snapshot()['heading_status'],'OFF')
+        self.assertEqual([c for c in h.drive.commands if c[0]=='steer'],[('steer',10.),('steer',0)])
+
+    def test_left_drift_steers_right_proportionally_with_limit_and_deadband(self):
+        h=Harness(gyro=True)
+        h.yaw=30.;h.echo(80.)  # Reference is whatever yaw is at the start.
+        self.assertEqual(h.controller.snapshot()['heading_status'],'ACTIVE')
+        steers=[]
+        for yaw in [34.,50.,28.,30.5]:
+            h.yaw=yaw;h.echo(70.)
+            steers.append(h.controller.snapshot()['steer_deg'])
+        self.assertEqual(steers,[6,12,-3,0])
+        self.assertEqual(h.controller.snapshot()['heading_error_deg'],.5)
+        self.assertEqual([c for c in h.drive.commands if c[0]=='forward'],[('forward',40)])
+
+    def test_gyro_loss_centers_and_keeps_driving(self):
+        h=Harness(gyro=True);h.echo(80.)
+        h.yaw=5.;h.echo(70.)
+        h.yaw=None;state=h.echo(60.)
+        self.assertEqual((state['state'],state['heading_status'],state['steer_deg']),
+                         ('DRIVING','GYRO_UNAVAILABLE',0))
+        self.assertEqual(h.drive.commands[-1],('steer',0))
+
+    def test_stale_gyro_sample_is_ignored(self):
+        h=Harness(gyro=True);h.echo(80.)
+        h.controller.read_heading=lambda:dict(yaw_deg=9.,captured_at=h.time-.5)
+        self.assertEqual(h.echo(70.)['heading_status'],'GYRO_UNAVAILABLE')
+
+    def test_late_gyro_takes_reference_when_it_appears(self):
+        h=Harness(gyro=True);h.yaw=None
+        self.assertEqual(h.echo(80.)['heading_status'],'GYRO_UNAVAILABLE')
+        h.yaw=12.;self.assertEqual(h.echo(70.)['steer_deg'],0)
+        h.yaw=14.;self.assertEqual(h.echo(60.)['steer_deg'],3)
+
+    def test_target_stop_centers_before_locking(self):
+        h=Harness(gyro=True);h.echo(80.)
+        h.yaw=6.;h.echo(70.)
+        state=h.echo(36.)
+        self.assertEqual(state['state'],'STOPPED_WAIT')
+        self.assertEqual(h.drive.commands[-2:],[('steer',0),('stop',0)])
+
+
+class GyroHeadingTests(unittest.TestCase):
+    def make(self,rates,sign=1):
+        from picar_mission.heading import GyroHeading
+        it=iter(rates)
+        return GyroHeading(lambda:next(it),z_sign=sign,calibration_seconds=1.)
+
+    def test_bias_removed_then_rate_integrated(self):
+        g=self.make([.5]*11+[10.5]*10)
+        for i in range(11):
+            g.step(i*.1)
+            if i<10: self.assertIsNone(g.read_sample())
+        for i in range(11,21): g.step(i*.1)
+        self.assertAlmostEqual(g.read_sample()['yaw_deg'],10.,places=6)
+        self.assertTrue(g.snapshot()['calibrated'])
+
+    def test_sign_flip(self):
+        g=self.make([0.]*11+[10.]*2,sign=-1)
+        for i in range(13): g.step(i*.1)
+        self.assertAlmostEqual(g.read_sample()['yaw_deg'],-2.)
+
+    def test_read_failure_hides_sample_and_skips_gap(self):
+        g=self.make([0.]*11+[10.])
+        for i in range(12): g.step(i*.1)
+        def broken(): raise OSError('i2c')
+        g.read_rate_dps=broken
+        g.step(1.2)
+        self.assertIsNone(g.read_sample())
+        self.assertIn('i2c',g.snapshot()['error'])
+        g.read_rate_dps=lambda:10.
+        g.step(5.)  # Gap after failure is not integrated.
+        g.step(5.1)
+        self.assertAlmostEqual(g.read_sample()['yaw_deg'],2.)
+
+
+class SteeringConfigTests(unittest.TestCase):
+    def test_bad_steering_and_gyro_settings_rejected(self):
+        import json,tempfile
+        for values in [dict(direct_steer_preload_deg=40),dict(direct_steer_settle_seconds=-1),
+                       dict(heading_gain=0),dict(heading_max_steer_deg=31),
+                       dict(gyro_z_sign=2),dict(gyro_z_sign=True),
+                       dict(heading_correction_enabled='yes'),dict(gyro_max_age_seconds=float('nan'))]:
+            with self.subTest(values=values),tempfile.TemporaryDirectory() as d:
+                p=Path(d)/'c.json';p.write_text(json.dumps(values))
+                with self.assertRaises(ValueError): load_config(p)
 
 
 if __name__=='__main__': unittest.main()

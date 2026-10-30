@@ -15,5 +15,15 @@
   "arm_start_delay_seconds": 1.0,
   "control_period_seconds": 0.02,
   "approach_timeout_seconds": 40.0,
-  "arm_enabled": false
+  "arm_enabled": false,
+  "direct_steer_preload_deg": 10.0,
+  "direct_steer_preload_seconds": 0.2,
+  "direct_steer_settle_seconds": 0.3,
+  "heading_correction_enabled": true,
+  "heading_gain": 1.5,
+  "heading_max_steer_deg": 12.0,
+  "heading_deadband_deg": 1.0,
+  "gyro_max_age_seconds": 0.2,
+  "gyro_z_sign": 1,
+  "gyro_calibration_seconds": 1.5
 }

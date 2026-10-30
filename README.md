@@ -2,16 +2,18 @@
 
 제조사 코드 전체와 QR·주행·팔 모듈을 포함합니다. **실행 파일은 기존 `Server/WebServer.py`입니다. 새 main.py는 없습니다.**
 
-기본 동작을 **LEFT/RIGHT QR 1회 인식 → 일정 출력으로 직진 → 초음파 36cm 이하에서 정지**로 단순화했습니다. 방향은 처음 인식한 값으로 유지합니다. 기본 팔 동작은 꺼져 있습니다.
+기본 동작을 **LEFT/RIGHT QR 1회 인식 → 조향 정렬 → 일정 출력으로 직진(자이로 방향 유지) → 초음파 36cm 이하에서 정지**로 단순화했습니다. 방향은 처음 인식한 값으로 유지합니다. 기본 팔 동작은 꺼져 있습니다.
 
 ## 현재 실행 흐름
 
 ```text
-WAIT_QR → DRIVING → STOPPED_WAIT
+WAIT_QR → STEER_PRELOAD(0.2초) → STEER_SETTLE(0.3초) → DRIVING → STOPPED_WAIT
 ```
 
 - 같은 QR의 연속 프레임이나 추가 확인 시간을 요구하지 않습니다. LEFT/RIGHT 동시 인식, 같은 출발 QR 여러 개, PICK/PLACE만 보이는 경우에는 출발하지 않습니다.
-- 정상 초음파 값 하나가 36cm보다 크면 바로 전진 명령을 냅니다. 세 번 측정·중앙값·급변 검사·조향 안정 대기·진행량 검사를 출발 조건으로 쓰지 않습니다.
+- QR 확정 후 조향을 오른쪽 10도로 보냈다가 가운데로 돌아오고, 0.3초 기다린 뒤 출발합니다. 조향 연결부 유격이 매번 같은 쪽으로 정리되고, 서보가 도착하기 전에 출발하지 않습니다. `direct_steer_preload_deg=0`이면 바로 가운데로 맞추고 기다립니다.
+- 그다음 정상 초음파 값 하나가 36cm보다 크면 바로 전진 명령을 냅니다. 세 번 측정·중앙값·급변 검사·진행량 검사를 출발 조건으로 쓰지 않습니다.
+- 주행 중에는 MPU6050 자이로(z축)로 출발 순간의 방향을 기준으로 삼고, 틀어진 각도 × `heading_gain`만큼 반대로 조향합니다(최대 ±12도, 1도 미만은 무시). 왼쪽으로 틀어지면 오른쪽(제조사 기준 양수)으로 꺾습니다. 자이로가 없거나 값이 끊기면 조향을 가운데에 두고 그대로 주행합니다. 정지선에서는 조향을 가운데로 돌린 뒤 잠급니다.
 - 기본 출력은 `direct_speed=40`입니다. 모터 PWM 명령 0~100의 값이며 cm/s가 아닙니다. 50cm 감속도 적용하지 않습니다.
 - 초음파 값이 36cm 이하이면 즉시 모터 정지 명령 후 `STOPPED_WAIT`에서 대기합니다. 이미 36cm 이내에 있으면 전진하지 않습니다.
 - 정지선 도달 전에 거리값이 누락되거나 잘못되면 즉시 바퀴를 멈추고 `WAIT_DISTANCE`에서 최대 3초 동안 다시 읽습니다. 정상 값이 36cm보다 크면 주행을 이어가고, 36cm 이하면 정지선 도달로 고정합니다. 끝내 회복되지 않으면 `ERROR`로 종료합니다. 주행 최대 시간은 40초입니다.
@@ -95,8 +97,17 @@ sudo python3 Server/WebServer.py
 | `approach_timeout_seconds` | 40.0 | 주행 시간 한도 |
 | `auto_approach_enabled` | true | 자동 주행 사용 |
 | `arm_enabled` | false | 보정 완료된 팔 순서 사용 여부 |
+| `direct_steer_preload_deg` / `_seconds` | 10.0 / 0.2 | 출발 전 가운데로 돌아오기 전에 먼저 보낼 조향각(양수=오른쪽)과 머무는 시간 |
+| `direct_steer_settle_seconds` | 0.3 | 가운데 정렬 후 출발까지 대기 |
+| `heading_correction_enabled` | true | 자이로 방향 유지 사용 |
+| `heading_gain` | 1.5 | 방향 오차 1도당 조향 각도 |
+| `heading_max_steer_deg` / `heading_deadband_deg` | 12.0 / 1.0 | 보정 조향 한도, 무시할 작은 오차 |
+| `gyro_z_sign` | 1 | 자이로 장착 방향. 아래 확인 결과 반대면 -1 |
+| `gyro_max_age_seconds` / `gyro_calibration_seconds` | 0.2 / 1.5 | 사용할 자이로 값의 최대 나이, 서버 시작 직후 정지 상태 편차 측정 시간 |
 | `camera_backend` / `camera_source` | usb / 0 | 공유 카메라 종류와 장치 |
 | `max_frame_age_seconds` | 1.5 | QR 디코더의 프레임 나이 한도 |
+
+**자이로 방향 확인(처음 한 번)**: 서버 시작 후 1.5초 동안은 로봇을 움직이지 마세요(자이로 편차 측정). 그다음 `/mission/status`의 `gyro.yaw_deg`를 보면서 로봇을 손으로 왼쪽(반시계)으로 돌렸을 때 값이 **커지면** 정상입니다. 작아지면 `gyro_z_sign=-1`로 바꿉니다. 실제 주행에서는 상태 JSON의 `heading_status`(ACTIVE·GYRO_UNAVAILABLE·OFF), `heading_error_deg`, `steer_deg`와 터미널의 `steer_command` 로그로 보정 동작을 확인합니다. 지그재그로 흔들리면 `heading_gain`을 낮추고, 여전히 휘면 올립니다.
 
 설정 파일은 현재 사용하는 항목만 남겼습니다. 예전 파일에 있던 감속·중앙값·정지 안정 설정은 읽을 수 있지만 현재 직접 주행에서 사용하거나 검사하지 않습니다. 팔이 꺼져 있으면 팔 자세 파일도 불러오지 않습니다. 수동 각도 확인은 팔 설정과 별개로 계속 사용할 수 있습니다.
 
@@ -119,6 +130,30 @@ sudo python3 scripts/register_service.py --start
 ```
 
 기존 Adeept_Robot.service를 백업하고 이 폴더의 Server/WebServer.py를 가리키도록 변경합니다. 다운로드만으로 별도 설치된 원래 서비스가 교체되지는 않습니다. 제조사 setup.py는 패키지 설치·네트워크 설정·재부팅을 포함하므로 기존 환경에서 매번 실행하지 않습니다.
+
+## 팔 시연 데이터 기록
+
+팔을 수동 조작하며 학습용 CSV를 모읍니다. 기록기(`picar_mission/recorder.py`)는 값을 읽기만 하고 모터·서보를 제어하지 않습니다. 서보 값은 마지막 **명령각**이며 실제 관절 위치가 아닙니다.
+
+1. 로봇을 실제 정지 위치에 둡니다. 자동 주행으로 정지시킨 뒤 Ctrl+C로 서버를 끄면 차체는 그 자리에 남습니다.
+2. `mission_config.json`에서 `auto_approach_enabled=false`로 바꾸고 서버를 다시 실행합니다. 자동 모드에서는 수동 조작이 막힙니다.
+3. 브라우저 탭 두 개를 엽니다. `http://로봇IP:5000/`에서 ARM 버튼으로 조작하고, `http://로봇IP:5000/record`에서 기록합니다.
+4. 기록 시작 → 단계마다 자세를 맞추고 마크(observe·above·grasp·close·open·lift·carry·retreat) → 기록 종료(성공 여부, 자로 잰 정지 거리)를 반복합니다.
+
+결과는 `data/demos/`에 쌓이며 git에는 올라가지 않습니다(`.gitignore`).
+
+| 파일 | 한 줄 단위 | 주요 열 |
+|---|---|---|
+| `keyframes.csv` | 마크 1번 | side, task, label, ok, base/shoulder/elbow/gripper, distance_cm, PICK·PLACE QR 중심/크기(화면 폭 기준 정규화), frame_file |
+| `trajectory.csv` | 20Hz 샘플 | t, 관절 4개 명령각, distance_cm, 누르고 있는 ARM 버튼 |
+| `episodes.csv` | 에피소드 1번 | side, success, stop_distance_cm(실측), sensor_distance_cm, 메모 |
+| `frames/<episode>/` | 마크 1번 | 마크 순간의 카메라 사진 |
+
+열 구성이 다른 기존 CSV가 있으면 섞이지 않도록 기록 시작을 거부합니다. PC로 가져올 때는 다음과 같이 복사합니다.
+
+```bash
+scp -r phc_20@로봇IP:~/picar/data/demos ./demos
+```
 
 ## 검증 및 출처
 

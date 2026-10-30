@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PiCar 팔 데이터 기록</title>
+<style>
+body{font:16px/1.6 system-ui,sans-serif;max-width:850px;margin:24px auto;padding:0 16px;color:#182730;background:#f5f7f8}
+img{width:100%;max-width:640px;height:auto}a{color:#126079}
+fieldset{border:1px solid #c5d3d8;margin:0 0 16px;padding:12px 16px}legend{font-weight:600}
+button{font:inherit;padding:8px 16px;margin:4px 4px 4px 0;border:0;background:#126079;color:#fff;cursor:pointer}
+button:disabled{background:#9aa9ae;cursor:default}button.danger{background:#a91d25}
+input,select{font:inherit;padding:4px}input[type=text]{width:100%;max-width:420px;box-sizing:border-box}
+table{border-collapse:collapse}td{padding:2px 12px 2px 0;font-variant-numeric:tabular-nums}
+#msg{min-height:1.6em;font-weight:600}.rec{color:#a91d25}
+</style>
+<h1>팔 시연 데이터 기록</h1>
+<p>서보 각도는 마지막 명령값입니다(엔코더 없음). 팔은 <a href="/" target="_blank">기본 웹 제어</a> 탭의 ARM 버튼으로 조작하고, 이 탭에서 단계마다 마크를 누르세요. 수동 조작은 <code>auto_approach_enabled=false</code>에서만 됩니다.</p>
+<p id="msg" role="status"></p>
+
+<fieldset id="start-box">
+  <legend>1. 에피소드 시작</legend>
+  <label>첫 물체 방향 <select id="side"><option>LEFT</option><option>RIGHT</option></select></label>
+  <p><label>조건 메모 <input id="start-note" type="text" placeholder="예: 정지 38cm, 차체 왼쪽 5도"></label></p>
+  <button id="start">기록 시작</button>
+</fieldset>
+
+<fieldset id="mark-box">
+  <legend>2. 단계 마크 (자세를 맞춘 뒤 누르기)</legend>
+  <label>작업 <select id="task"><option value="pick">pick (집기)</option><option value="place">place (놓기)</option></select></label>
+  <label style="margin-left:16px"><input id="fail" type="checkbox"> 이 단계 실패</label>
+  <div>
+    <button data-label="observe">observe 관측</button>
+    <button data-label="above">above 위 접근</button>
+    <button data-label="grasp">grasp 집기/놓기 위치</button>
+    <button data-label="close">close 집게 닫음</button>
+    <button data-label="open">open 집게 엶</button>
+    <button data-label="lift">lift 들어올림</button>
+    <button data-label="carry">carry 중앙 경유</button>
+    <button data-label="retreat">retreat 후퇴</button>
+  </div>
+</fieldset>
+
+<fieldset id="stop-box">
+  <legend>3. 에피소드 종료</legend>
+  <label>결과 <select id="success"><option value="1">성공</option><option value="0">실패</option><option value="">미정</option></select></label>
+  <label style="margin-left:16px">자로 잰 정지 거리(cm) <input id="stop-cm" type="number" step="0.1" min="0" style="width:6em"></label>
+  <p><label>메모 <input id="stop-note" type="text" placeholder="비우면 시작 메모 유지"></label></p>
+  <button id="stop" class="danger">기록 종료·저장</button>
+</fieldset>
+
+<table id="live"></table>
+<img src="/video_feed" alt="카메라 영상">
+<script>
+const $=id=>document.getElementById(id), msg=t=>$('msg').textContent=t;
+async function post(action,body){
+  const r=await fetch('/record/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({error:'HTTP '+r.status}));
+  if(!r.ok)throw Error(j.error||('HTTP '+r.status));
+  render(j.status);return j.result;
+}
+$('start').onclick=async()=>{try{const s=await post('start',{side:$('side').value,note:$('start-note').value});msg('기록 중: '+s.episode_id);}catch(e){msg('시작 실패: '+e.message);}};
+document.querySelectorAll('[data-label]').forEach(b=>b.onclick=async()=>{
+  try{const row=await post('mark',{task:$('task').value,label:b.dataset.label,ok:!$('fail').checked});
+    msg(`#${row.index} ${row.task}/${row.label}${row.ok?'':' (실패)'} — base ${row.base}, shoulder ${row.shoulder}, elbow ${row.elbow}, gripper ${row.gripper}`+(row.frame_file?'':' · 사진 없음'));
+    $('fail').checked=false;}catch(e){msg('마크 실패: '+e.message);}});
+$('stop').onclick=async()=>{
+  const cm=$('stop-cm').value, s=$('success').value, note=$('stop-note').value;
+  try{const row=await post('stop',{success:s===''?null:s==='1',stop_distance_cm:cm===''?null:Number(cm),note:note===''?null:note});
+    msg(`저장됨: ${row.episode_id} (키프레임 ${row.keyframes}, 궤적 ${row.trajectory_rows}행)`);$('stop-note').value='';}catch(e){msg('종료 실패: '+e.message);}};
+function render(s){
+  const rec=s.recording, a=s.angles_deg||{}, q=s.qr||{};
+  $('start').disabled=rec;$('stop').disabled=!rec;
+  document.querySelectorAll('[data-label]').forEach(b=>b.disabled=!rec);
+  const rows=[
+    ['상태',rec?`<span class="rec">● 기록 중</span> ${s.episode_id} (${s.side}) ${s.elapsed_s}s`:'대기'],
+    ['키프레임 / 궤적',`${s.keyframes} / ${s.trajectory_rows}행 · 누적 에피소드 ${s.episodes_total}`],
+    ['서보 명령각',['base','shoulder','elbow','gripper'].map(k=>`${k} ${a[k]??'-'}`).join(' · ')],
+    ['조작 중 버튼',s.command||'-'],
+    ['초음파',s.distance_cm==null?'-':`${s.distance_cm}cm (${s.distance_age_s}s 전)`],
+    ['PICK QR',q.pick_cx==null?'-':`x ${q.pick_cx}, y ${q.pick_cy}, 크기 ${q.pick_size}`],
+    ['PLACE QR',q.place_cx==null?'-':`x ${q.place_cx}, y ${q.place_cy}, 크기 ${q.place_size}`],
+    ['QR 갱신',s.qr_error?'오류: '+s.qr_error:(s.qr_age_s==null?'-':s.qr_age_s+'s 전')]];
+  $('live').innerHTML=rows.map(([k,v])=>`<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+}
+async function refresh(){try{const r=await fetch('/record/status',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);render(await r.json());}catch(e){msg('서버 연결 확인 필요: '+e.message);}finally{setTimeout(refresh,500);}}
+refresh();
+</script>
+</html>

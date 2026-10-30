@@ -42,6 +42,16 @@ class MissionConfig:
     stop_stability_cm: float = 0.6
     stop_samples: int = 4
     arm_enabled: bool = False
+    direct_steer_preload_deg: float = 10.0
+    direct_steer_preload_seconds: float = 0.2
+    direct_steer_settle_seconds: float = 0.3
+    heading_correction_enabled: bool = True
+    heading_gain: float = 1.5
+    heading_max_steer_deg: float = 12.0
+    heading_deadband_deg: float = 1.0
+    gyro_max_age_seconds: float = 0.2
+    gyro_z_sign: int = 1
+    gyro_calibration_seconds: float = 1.5
 
 
 def load_config(path=None):
@@ -84,6 +94,25 @@ def load_config(path=None):
     if cfg.arm_enabled:
         if isinstance(cfg.arm_start_delay_seconds,bool) or not isinstance(cfg.arm_start_delay_seconds,(int,float)) or not math.isfinite(cfg.arm_start_delay_seconds) or cfg.arm_start_delay_seconds < 0:
             raise ValueError('arm_start_delay_seconds must be nonnegative and finite')
+    def number(name):
+        value = getattr(cfg, name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(name + ' must be a finite number')
+        return value
+    if abs(number('direct_steer_preload_deg')) > 30:
+        raise ValueError('Require |direct_steer_preload_deg| <= 30')
+    for name in ('direct_steer_preload_seconds', 'direct_steer_settle_seconds', 'heading_deadband_deg'):
+        if number(name) < 0:
+            raise ValueError(name + ' must be nonnegative')
+    for name in ('heading_gain', 'gyro_max_age_seconds', 'gyro_calibration_seconds'):
+        if number(name) <= 0:
+            raise ValueError(name + ' must be positive')
+    if not 0 < number('heading_max_steer_deg') <= 30:
+        raise ValueError('Require 0 < heading_max_steer_deg <= 30')
+    if type(cfg.heading_correction_enabled) is not bool:
+        raise ValueError('heading_correction_enabled must be boolean')
+    if cfg.gyro_z_sign not in (1, -1) or type(cfg.gyro_z_sign) is not int:
+        raise ValueError('gyro_z_sign must be 1 or -1')
     # Legacy precision settings remain readable for old files; the direct
     # controller does not construct or validate those unused gates.
     return cfg
