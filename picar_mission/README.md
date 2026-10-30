@@ -27,7 +27,7 @@ python3 qr_scan.py
 실행 후 카메라 앞에 첨부 자료의 LEFT 또는 RIGHT QR을 보여줍니다. 정상 출력 예시는 아래와 같습니다.
 
 ```json
-{"event":"start_confirmed","direction":"LEFT","target_distance_cm":36.0,"distance_offset_cm":0.0,"motor_control":false}
+{"event":"start_confirmed","direction":"LEFT","target_distance_cm":30.0,"distance_offset_cm":0.0,"motor_control":false}
 ```
 
 실제 출력에는 프레임 수와 확인 시간도 포함됩니다. 성공 후 프로그램은 종료됩니다. 재시험하려면 다시 실행하세요. 인식값은 화면에 보여주는 QR로 결정하며, 물리적인 왼쪽/오른쪽 위치로 추측하지 않습니다.

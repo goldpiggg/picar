@@ -10,7 +10,18 @@ ROOT = Path(__file__).resolve().parent.parent
 @dataclass(frozen=True)
 class MissionConfig:
     qr_enabled: bool = True
-    target_distance_cm: float = 36.0
+    target_distance_cm: float = 30.0
+    # Battery-compensated drive: motor volts -> PWM % = volts / battery volts.
+    cruise_motor_volts: float = 2.8
+    pulse_motor_volts: float = 3.0
+    pulse_seconds: float = 0.15
+    pulse_zone_cm: float = 38.0
+    pulse_settle_seconds: float = 0.3
+    pulse_samples: int = 5
+    pulse_min_seconds: float = 0.08
+    pulse_max_seconds: float = 0.4
+    max_pulses: int = 15
+    battery_fallback_volts: float = 7.4
     distance_offset_cm: float = 0.0
     camera_backend: str = 'usb'
     camera_source: object = 0
@@ -57,7 +68,8 @@ class MissionConfig:
 def load_config(path=None):
     path = ROOT / 'mission_config.json' if path is None else Path(path)
     values = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
-    cfg = MissionConfig(**values)
+    # Keys starting with "_" are notes for people editing the file.
+    cfg = MissionConfig(**{k:v for k,v in values.items() if not k.startswith('_')})
     if type(cfg.qr_enabled) is not bool:
         raise ValueError('qr_enabled must be a boolean')
     if cfg.camera_backend not in ('usb', 'csi'):
@@ -113,6 +125,22 @@ def load_config(path=None):
         raise ValueError('heading_correction_enabled must be boolean')
     if cfg.gyro_z_sign not in (1, -1) or type(cfg.gyro_z_sign) is not int:
         raise ValueError('gyro_z_sign must be 1 or -1')
+    for name in ('cruise_motor_volts', 'pulse_motor_volts', 'battery_fallback_volts'):
+        if not 0 < number(name) <= 12:
+            raise ValueError('Require 0 < '+name+' <= 12')
+    for name in ('pulse_min_seconds', 'pulse_seconds', 'pulse_max_seconds'):
+        if not 0 < number(name) <= 2:
+            raise ValueError('Require 0 < '+name+' <= 2')
+    if not cfg.pulse_min_seconds <= cfg.pulse_seconds <= cfg.pulse_max_seconds:
+        raise ValueError('Require pulse_min_seconds <= pulse_seconds <= pulse_max_seconds')
+    if number('stop_tolerance_cm') <= 0 or number('pulse_settle_seconds') < 0:
+        raise ValueError('stop_tolerance_cm must be positive, pulse_settle_seconds nonnegative')
+    if not number('pulse_zone_cm') > cfg.target_distance_cm+cfg.stop_tolerance_cm:
+        raise ValueError('Require pulse_zone_cm > target_distance_cm + stop_tolerance_cm')
+    for name in ('pulse_samples', 'max_pulses'):
+        value = getattr(cfg, name)
+        if type(value) is not int or value < (1 if name=='pulse_samples' else 0):
+            raise ValueError(name+' must be a nonnegative integer (pulse_samples >= 1)')
     # Legacy precision settings remain readable for old files; the direct
     # controller does not construct or validate those unused gates.
     return cfg

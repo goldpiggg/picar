@@ -1,4 +1,4 @@
-"""Exercise the production QR -> forward -> raw 36cm stop path, without GPIO."""
+"""Exercise the production QR -> slow forward -> pulse to 30cm path, without GPIO."""
 from dataclasses import replace
 import importlib.util
 from pathlib import Path
@@ -23,8 +23,10 @@ def instant_steering(cfg=None):
 
 
 class Harness:
-    def __init__(self,direction='LEFT',cfg=None,gyro=False):
+    def __init__(self,direction='LEFT',cfg=None,gyro=False,battery=7.):
+        # 2.8V/7V cruise = PWM 40, 3V/7V pulse = PWM 42.9.
         self.time=0.
+        self.battery=battery
         self.sequence=0
         self.sample=None
         self.yaw=0.
@@ -32,12 +34,24 @@ class Harness:
         self.drive=test_approach.Drive()
         heading=(lambda:None if self.yaw is None else dict(yaw_deg=self.yaw,captured_at=self.time)) if gyro else None
         self.controller=DirectMissionController(cfg or instant_steering(),self.drive,
-            lambda:self.sample,lambda:self.qr,clock=lambda:self.time,read_heading=heading)
+            lambda:self.sample,lambda:self.qr,clock=lambda:self.time,read_heading=heading,
+            read_battery=lambda:self.battery)
 
     def echo(self,distance,dt=.06):
         self.time+=dt
         self.sequence+=1
         self.sample=dict(distance_cm=distance,captured_at=self.time,sequence=self.sequence)
+        self.controller.step()
+        return self.controller.snapshot()
+
+    def settle(self,distance):
+        """Wait out the settle time, then feed enough fresh echoes for one median."""
+        self.time+=self.controller.cfg.pulse_settle_seconds
+        for _ in range(self.controller.cfg.pulse_samples): state=self.echo(distance)
+        return state
+
+    def finish_pulse(self):
+        self.time=self.controller.pulse_until
         self.controller.step()
         return self.controller.snapshot()
 
@@ -61,25 +75,107 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(h.controller.snapshot()['state'],'DRIVING')
         self.assertIn(('forward',40),h.drive.commands)
 
-    def test_constant_forward_then_immediate_raw_stop(self):
+    def test_constant_forward_then_brake_at_pulse_zone(self):
         h=Harness()
-        states=[h.echo(d)['state'] for d in [80.,50.,40.,36.1,36.]]
-        self.assertEqual(states,['DRIVING']*4+['STOPPED_WAIT'])
+        states=[h.echo(d)['state'] for d in [80.,50.,40.,38.1,38.]]
+        self.assertEqual(states,['DRIVING']*4+['PULSE_SETTLE'])
         self.assertEqual([x for x in h.drive.commands if x[0]=='forward'],[('forward',40)])
         self.assertEqual(h.drive.commands[-1],('stop',0))
-        self.assertTrue(h.controller.snapshot()['approach_complete'])
+        self.assertFalse(h.controller.snapshot()['approach_complete'])
 
-    def test_near_echo_stops_despite_large_distance_jump(self):
-        h=Harness();h.echo(80.)
-        state=h.echo(35.8)
+    def test_settled_median_within_tolerance_latches_without_pulse(self):
+        h=Harness();h.echo(80.);h.echo(37.)
+        state=h.settle(30.6)
         self.assertEqual(state['state'],'STOPPED_WAIT')
-        self.assertIsNone(state['error'])
+        self.assertEqual((state['final_distance_cm'],state['pulse_count']),(30.6,0))
         self.assertEqual(state['stop_reason'],'TARGET_DISTANCE_REACHED')
+        self.assertTrue(state['approach_complete'])
 
-    def test_already_at_target_never_drives(self):
-        for distance in [36.,35.,20.]:
+    def test_median_ignores_one_bad_echo(self):
+        h=Harness();h.echo(80.);h.echo(37.)
+        h.time+=.3
+        for d in [30.2,30.,45.,29.9,30.1]: state=h.echo(d)
+        self.assertEqual((state['state'],state['final_distance_cm']),('STOPPED_WAIT',30.1))
+
+    def test_settle_ignores_echoes_before_the_car_has_stopped(self):
+        h=Harness();h.echo(80.);h.echo(37.)
+        for _ in range(4): state=h.echo(30.)  # 0.24s < 0.3s settle.
+        self.assertEqual(state['state'],'PULSE_SETTLE')
+        self.assertEqual(h.controller.measure_values,[])
+
+    def test_far_stop_pulses_forward_then_sizes_from_measured_rate(self):
+        h=Harness();h.echo(80.);h.echo(37.)
+        state=h.settle(34.)
+        self.assertEqual(state['state'],'PULSING')
+        self.assertEqual(h.drive.commands[-1],('forward',42.9))
+        self.assertEqual((state['pulse_count'],state['last_pulse_seconds']),(1,.15))
+        self.assertEqual(h.finish_pulse()['state'],'PULSE_SETTLE')
+        self.assertEqual(h.drive.commands[-1],('stop',0))
+        state=h.settle(32.5)  # Moved 1.5cm in 0.15s -> 10cm/s; 2.5cm left -> 0.25s.
+        self.assertEqual((state['pulse_cm_per_second'],state['last_pulse_seconds']),(10.,.25))
+        h.finish_pulse()
+        state=h.settle(30.3)
+        self.assertEqual((state['state'],state['pulse_count']),('STOPPED_WAIT',2))
+        self.assertEqual(h.drive.commands[-1],('stop',0))
+
+    def test_overshoot_pulses_backward(self):
+        h=Harness();h.echo(80.);h.echo(37.)
+        state=h.settle(27.)
+        self.assertEqual(state['state'],'PULSING')
+        self.assertEqual(h.drive.commands[-1],('backward',42.9))
+
+    def test_stalled_pulse_is_lengthened_within_limits(self):
+        h=Harness();h.echo(80.);h.echo(37.)
+        h.settle(34.);h.finish_pulse()
+        state=h.settle(33.9)
+        self.assertEqual(state['last_pulse_seconds'],.195)
+        self.assertIsNone(state['pulse_cm_per_second'])
+        for _ in range(4):
+            h.finish_pulse();state=h.settle(33.9)
+        self.assertEqual(state['last_pulse_seconds'],.4)
+
+    def test_pulse_count_is_bounded(self):
+        h=Harness(cfg=replace(instant_steering(),max_pulses=1));h.echo(80.);h.echo(37.)
+        h.settle(34.);h.finish_pulse()
+        state=h.settle(34.)
+        self.assertEqual((state['state'],state['error']),('ERROR','PULSE_LIMIT_REACHED'))
+        self.assertEqual(h.drive.commands[-1],('stop',0))
+
+    def test_settle_sensor_failure_times_out_stopped(self):
+        h=Harness();h.echo(80.);h.echo(37.)
+        h.time+=.3;h.echo(None)
+        state=h.echo(None,dt=3.1)
+        self.assertEqual(state['state'],'ERROR')
+        self.assertIn('STOP_DISTANCE_TIMEOUT',state['error'])
+        self.assertEqual(h.drive.commands[-1],('stop',0))
+
+    def test_pulse_ends_on_time_not_a_control_period_late(self):
+        h=Harness();h.echo(80.);h.echo(37.);h.settle(34.)
+        start=h.time
+        h.time=start+.14
+        self.assertAlmostEqual(h.controller._wait_seconds(),.01)
+        h.controller.step()
+        self.assertEqual(h.controller.snapshot()['state'],'PULSING')
+        h.time=start+.15
+        self.assertEqual(h.controller._wait_seconds(),0.)
+
+    def test_battery_voltage_sets_pwm_once_at_start(self):
+        for battery,cruise,pulse,source in [(8.4,33.3,35.7,'MEASURED'),(6.,46.7,50.,'MEASURED'),
+                                            (None,37.8,40.5,'FALLBACK'),(0.,37.8,40.5,'FALLBACK')]:
+            with self.subTest(battery=battery):
+                h=Harness(battery=battery);state=h.echo(80.)
+                self.assertEqual((state['cruise_pwm'],state['pulse_pwm'],state['battery_source']),
+                                 (cruise,pulse,source))
+                self.assertEqual(h.drive.commands[-1],('forward',cruise))
+                h.battery=5.;h.echo(70.)  # Sag mid-drive does not change speed.
+                self.assertEqual(h.controller.snapshot()['cruise_pwm'],cruise)
+
+    def test_already_at_target_never_drives_forward(self):
+        for distance in [38.,31.,30.]:
             h=Harness();state=h.echo(distance)
-            self.assertEqual(state['state'],'STOPPED_WAIT')
+            self.assertEqual(state['state'],'PULSE_SETTLE')
+            if distance<=31.:
+                self.assertEqual(h.settle(distance)['state'],'STOPPED_WAIT')
             self.assertNotIn('forward',[x[0] for x in h.drive.commands])
 
     def test_no_qr_does_not_even_request_distance(self):
@@ -116,7 +212,8 @@ class DirectTests(unittest.TestCase):
 
     def test_sensor_recovery_inside_target_stops_permanently(self):
         h=Harness();h.echo(80.);h.echo(None)
-        state=h.echo(34.)
+        self.assertEqual(h.echo(34.)['state'],'PULSE_SETTLE')
+        state=h.settle(30.)
         self.assertEqual(state['state'],'STOPPED_WAIT')
         self.assertTrue(state['target_stop_latched'])
         commands=list(h.drive.commands)
@@ -147,7 +244,7 @@ class DirectTests(unittest.TestCase):
         for cancel in [False,True]:
             h=Harness();h.echo(80.)
             if cancel: h.controller.cancel()
-            else: h.echo(36.)
+            else: h.echo(36.);h.settle(30.)
             commands=list(h.drive.commands)
             h.echo(80.)
             self.assertEqual(h.drive.commands,commands)
@@ -157,8 +254,8 @@ class DirectTests(unittest.TestCase):
         h.controller.cfg=replace(h.controller.cfg,arm_enabled=True)
         driver=test_arm.FakeArm()
         h.controller.arm=test_arm.ArmSequence(driver,test_arm.calibrated_profile(),clock=lambda:h.time)
-        h.echo(80.)
-        self.assertEqual(h.echo(36.)['state'],'ARM_WAIT')
+        h.echo(80.);h.echo(36.)
+        self.assertEqual(h.settle(30.)['state'],'ARM_WAIT')
         self.assertEqual(h.drive.commands[-1],('stop',0))
         self.assertFalse(h.controller.snapshot()['arm_motion_enabled'])
         self.assertEqual(h.echo(34.,dt=.99)['state'],'ARM_WAIT')
@@ -172,7 +269,7 @@ class DirectTests(unittest.TestCase):
             h.controller.cfg=replace(h.controller.cfg,arm_enabled=True)
             driver=test_arm.FakeArm()
             h.controller.arm=test_arm.ArmSequence(driver,test_arm.calibrated_profile(),clock=lambda:h.time)
-            h.echo(80.);h.echo(36.)
+            h.echo(80.);h.echo(36.);h.settle(30.)
             wheel_count=len(h.drive.commands)
             def forbidden(): raise AssertionError('No sensor/camera reads after target stop')
             h.controller.read_sample=forbidden
@@ -202,21 +299,33 @@ class DirectTests(unittest.TestCase):
         bridge=test_approach.OfficialConnectionTests().load_bridge()
         steering=[]
         drive=bridge.DriveAdapter(move,SimpleNamespace(moveAngle=lambda *args:steering.append(args)))
+        now=[1.]
         controller=DirectMissionController(instant_steering(),drive,
-            lambda:dict(distance_cm=80.,captured_at=1.),
-            lambda:dict(first_direction='LEFT'),clock=lambda:1.)
+            lambda:dict(distance_cm=80.,captured_at=now[0]),
+            lambda:dict(first_direction='LEFT'),clock=lambda:now[0],read_battery=lambda:7.)
         controller.step()
         self.assertAlmostEqual(move.motor1.throttle,-.4)
         self.assertAlmostEqual(move.motor2.throttle,-.4)
         self.assertEqual(steering,[(0,10.),(0,0)])
-        controller.read_sample=lambda:dict(distance_cm=36.,captured_at=1.)
+        controller.read_sample=lambda:dict(distance_cm=27.,captured_at=now[0])
         controller.step()
+        self.assertEqual((move.motor1.throttle,move.motor2.throttle),(0,0))
+        now[0]+=.3
+        for _ in range(5): now[0]+=.06;controller.step()
+        self.assertEqual(controller.snapshot()['state'],'PULSING')
+        self.assertAlmostEqual(move.motor1.throttle,.429)  # Backward pulse flips sign.
+        self.assertAlmostEqual(move.motor2.throttle,.429)
+        now[0]=controller.pulse_until;controller.step()
+        controller.read_sample=lambda:dict(distance_cm=30.,captured_at=now[0])
+        now[0]+=.3
+        for _ in range(5): now[0]+=.06;controller.step()
         self.assertTrue(drive.locked)
         self.assertEqual(move.motor1.throttle,0)
         self.assertEqual(move.motor2.throttle,0)
         with self.assertRaisesRegex(RuntimeError,'DRIVE_LOCKED_AFTER_STOP'): drive.forward(40)
         with self.assertRaisesRegex(RuntimeError,'DRIVE_LOCKED_AFTER_STOP'): drive.straight()
         with self.assertRaisesRegex(RuntimeError,'DRIVE_LOCKED_AFTER_STOP'): drive.steer(5)
+        with self.assertRaisesRegex(RuntimeError,'DRIVE_LOCKED_AFTER_STOP'): drive.backward(40)
         self.assertEqual(steering,[(0,10.),(0,0)])
 
     @unittest.skipUnless(importlib.util.find_spec('cv2'),'OpenCV unavailable')
@@ -234,7 +343,8 @@ class DirectTests(unittest.TestCase):
             self.assertEqual(runtime.snapshot()['first_direction'],'LEFT')
             drive=test_approach.Drive()
             controller=DirectMissionController(instant_steering(),drive,
-                lambda:dict(distance_cm=80.,captured_at=time.monotonic()),runtime.snapshot)
+                lambda:dict(distance_cm=80.,captured_at=time.monotonic()),runtime.snapshot,
+                read_battery=lambda:7.)
             controller.step()
             self.assertIn(('forward',40),drive.commands)
         finally:
@@ -307,8 +417,14 @@ class SteeringTests(unittest.TestCase):
         h=Harness(gyro=True);h.echo(80.)
         h.yaw=6.;h.echo(70.)
         state=h.echo(36.)
-        self.assertEqual(state['state'],'STOPPED_WAIT')
-        self.assertEqual(h.drive.commands[-2:],[('steer',0),('stop',0)])
+        self.assertEqual((state['state'],state['steer_deg']),('PULSE_SETTLE',0))
+        self.assertEqual(h.drive.commands[-2:],[('stop',0),('steer',0)])
+        h.yaw=20.  # Pulses stay straight; heading hold is off near the target.
+        h.settle(34.)
+        self.assertEqual(h.drive.commands[-1],('forward',42.9))
+        h.finish_pulse()
+        self.assertEqual(h.settle(30.)['state'],'STOPPED_WAIT')
+        self.assertNotIn(('steer',12),h.drive.commands[-8:])
 
 
 class GyroHeadingTests(unittest.TestCase):
@@ -346,12 +462,21 @@ class GyroHeadingTests(unittest.TestCase):
 
 
 class SteeringConfigTests(unittest.TestCase):
+    def test_underscore_keys_are_notes(self):
+        import json,tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'c.json';p.write_text(json.dumps({'_note':'hi','cruise_motor_volts':2.5}))
+            self.assertEqual(load_config(p).cruise_motor_volts,2.5)
+
     def test_bad_steering_and_gyro_settings_rejected(self):
         import json,tempfile
         for values in [dict(direct_steer_preload_deg=40),dict(direct_steer_settle_seconds=-1),
                        dict(heading_gain=0),dict(heading_max_steer_deg=31),
                        dict(gyro_z_sign=2),dict(gyro_z_sign=True),
-                       dict(heading_correction_enabled='yes'),dict(gyro_max_age_seconds=float('nan'))]:
+                       dict(heading_correction_enabled='yes'),dict(gyro_max_age_seconds=float('nan')),
+                       dict(cruise_motor_volts=0),dict(pulse_motor_volts=13),
+                       dict(pulse_seconds=.05),dict(pulse_seconds=.5),
+                       dict(pulse_zone_cm=31),dict(pulse_samples=0),dict(max_pulses=1.5)]:
             with self.subTest(values=values),tempfile.TemporaryDirectory() as d:
                 p=Path(d)/'c.json';p.write_text(json.dumps(values))
                 with self.assertRaises(ValueError): load_config(p)
