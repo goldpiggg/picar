@@ -13,8 +13,8 @@ class RelaxedStartTests(unittest.TestCase):
         self.assertEqual(load_config(),MissionConfig())
         cfg=load_config()
         self.assertEqual((cfg.required_frames,cfg.hold_seconds),(1,0.))
-        self.assertEqual(cfg.direct_speed,35)
-        self.assertEqual((cfg.target_distance_cm,cfg.stop_tolerance_cm),(35.,1.))
+        self.assertEqual(cfg.direct_speed,40)
+        self.assertEqual((cfg.target_distance_cm,cfg.stop_tolerance_cm),(36.,1.))
         self.assertEqual(cfg.distance_max_age_seconds,.25)
         self.assertFalse(cfg.arm_enabled)
 

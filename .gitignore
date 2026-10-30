@@ -3,4 +3,3 @@ __pycache__/
 .venv/
 .test-deps/
 *.log
-/drive_settings.json

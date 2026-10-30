@@ -13,58 +13,13 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from picar_mission.config import MissionConfig, load_config
-import picar_mission.config as config_module
 from picar_mission.runtime import MissionRuntime
 
 
 class ConfigTests(unittest.TestCase):
-    def test_personal_drive_settings_control_the_existing_mission(self):
-        from picar_mission.direct_mission_controller import DirectMissionController
-        from test_approach import Drive
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory)
-            (root/'mission_config.json').write_text(json.dumps(dict(target_distance_cm=35.,direct_speed=35)))
-            (root/'drive_settings.json').write_text(json.dumps(dict(target_distance_cm=32.,direct_speed=28)))
-            with patch.object(config_module,'ROOT',root):
-                cfg=load_config()
-        sample=dict(distance_cm=80.,captured_at=1.)
-        drive=Drive()
-        controller=DirectMissionController(cfg,drive,lambda:sample,
-            lambda:dict(first_direction='LEFT'),clock=lambda:1.)
-        controller.step()
-        self.assertEqual(drive.commands[-1],('forward',28))
-        sample['distance_cm']=35.
-        controller.step()
-        self.assertEqual(controller.snapshot()['state'],'DRIVING')
-        sample['distance_cm']=32.
-        controller.step()
-        self.assertEqual(controller.snapshot()['state'],'STOPPED_WAIT')
-        self.assertTrue(controller.snapshot()['target_stop_latched'])
-        self.assertEqual(drive.commands[-1],('stop',0))
-
-    def test_partial_drive_settings_preserve_base_and_explicit_configs(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory)
-            base=root/'mission_config.json'
-            base.write_text(json.dumps(dict(target_distance_cm=35.,direct_speed=35,distance_offset_cm=.4)))
-            (root/'drive_settings.json').write_text(json.dumps(dict(target_distance_cm=33.)))
-            with patch.object(config_module,'ROOT',root):
-                cfg=load_config()
-                self.assertEqual((cfg.target_distance_cm,cfg.direct_speed,cfg.distance_offset_cm),(33.,35,.4))
-                self.assertEqual(load_config(base).target_distance_cm,35.)
-
-    def test_invalid_personal_drive_settings_are_rejected(self):
-        for values in [[],dict(target_distance_cm=0),dict(direct_speed=0),
-                       dict(direct_speed='slow'),dict(arm_enabled=True)]:
-            with self.subTest(values=values),tempfile.TemporaryDirectory() as directory:
-                root=Path(directory)
-                (root/'drive_settings.json').write_text(json.dumps(values))
-                with patch.object(config_module,'ROOT',root),self.assertRaises(ValueError):
-                    load_config()
-
     def test_repository_defaults(self):
         c = load_config()
-        self.assertEqual((c.target_distance_cm, c.distance_offset_cm), (35., 0.))
+        self.assertEqual((c.target_distance_cm, c.distance_offset_cm), (36., 0.))
         self.assertEqual(c.camera_backend, 'usb')
 
     def test_bad_settings_rejected(self):
@@ -97,7 +52,7 @@ class ConfigTests(unittest.TestCase):
             lambda:dict(distance_cm=80.,captured_at=1.),
             lambda:dict(first_direction='LEFT'),clock=lambda:1.)
         controller.step()
-        self.assertIn(('forward',35),drive.commands)
+        self.assertIn(('forward',40),drive.commands)
 
     def test_disabled_arm_settings_are_not_loaded_and_angles_remain_visible(self):
         from dataclasses import replace
@@ -131,7 +86,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(state['first_direction'], 'RIGHT')
         self.assertEqual(state['state'], 'DIRECTION_CONFIRMED')
         self.assertFalse(state['automatic_motion_enabled'])
-        self.assertEqual(state['target_distance_cm'], 35.)
+        self.assertEqual(state['target_distance_cm'], 36.)
         runtime.process_frame('LEFT', .5, 4, FakeReader())
         self.assertEqual(runtime.snapshot()['first_direction'], 'RIGHT')
 
