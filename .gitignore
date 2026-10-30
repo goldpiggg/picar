@@ -3,3 +3,5 @@ __pycache__/
 .venv/
 .test-deps/
 *.log
+# Arm demonstration recordings (picar_mission/recorder.py); copy off the robot instead.
+data/

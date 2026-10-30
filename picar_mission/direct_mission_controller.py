@@ -1,4 +1,4 @@
-"""One QR -> constant forward PWM -> stop at the configured distance."""
+"""One QR -> settle steering -> constant forward PWM with gyro heading hold -> stop."""
 import math
 from .mission_controller import MissionController, TERMINAL
 from .distance import SensorFault
@@ -6,14 +6,18 @@ from .qr_scan import emit
 
 
 class DirectMissionController(MissionController):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, read_heading=None, **kwargs):
         kwargs['_precision'] = False
         super().__init__(*args, **kwargs)
+        self.read_heading = read_heading
+        self.heading_ref = None
         self.target_stop_latched = False
         self.distance_retry_at = None
         self.data.update(drive_mode='direct', configured_speed=self.cfg.direct_speed,
                          implemented_stages=['qr_recognition','direct_approach'],
-                         stop_reason=None,target_stop_latched=False)
+                         stop_reason=None,target_stop_latched=False,steer_deg=0,
+                         heading_status='OFF' if not self._heading_enabled() else 'WAITING',
+                         heading_error_deg=None)
         if self.arm is not None:
             self.data['implemented_stages'].append('arm_transfer_sequence')
 
@@ -27,6 +31,8 @@ class DirectMissionController(MissionController):
         self.target_stop_latched = True
         self.data.update(target_stop_latched=True,stop_reason='TARGET_DISTANCE_REACHED',
                          drive_locked=True)
+        if self.data['steer_deg'] != 0:
+            self._center()  # Last steering command before the lock blocks it.
         lock = getattr(self.drive,'lock',None)
         if lock is not None:
             lock()
@@ -104,8 +110,26 @@ class DirectMissionController(MissionController):
                 # one-shot direction. There is no second camera/startup gate.
                 self.data['first_direction'] = direction
                 self._stop()
-                self.drive.straight()
                 self.started_at = now
+                # Approach center from one side so linkage backlash settles the
+                # same way every run, then let the servo arrive before moving.
+                if self.cfg.direct_steer_preload_deg:
+                    self._steer(self.cfg.direct_steer_preload_deg)
+                    state = 'STEER_PRELOAD'
+                else:
+                    self._center()
+                    state = 'STEER_SETTLE'
+                self._state(state,now)
+            if state=='STEER_PRELOAD':
+                if now-self.state_at < self.cfg.direct_steer_preload_seconds:
+                    return
+                self._center()
+                state = 'STEER_SETTLE'
+                self._state(state,now)
+            if state=='STEER_SETTLE':
+                if now-self.state_at < self.cfg.direct_steer_settle_seconds:
+                    return
+                self._lock_heading_reference(now)
                 self._state('DRIVING',now)
 
             if now-self.started_at > self.cfg.approach_timeout_seconds:
@@ -132,8 +156,63 @@ class DirectMissionController(MissionController):
                 return
             if state=='WAIT_DISTANCE':
                 self._state('DRIVING',now)
+            self._correct_heading(now)
             if self.data['command_speed'] != self.cfg.direct_speed:
                 self.drive.forward(self.cfg.direct_speed)
                 self.data['command_speed'] = self.cfg.direct_speed
                 emit('drive_command',action='forward',pwm=self.cfg.direct_speed,
                      distance_cm=round(distance,3))
+
+    # -- steering and gyro heading hold ------------------------------------
+    def _heading_enabled(self):
+        return self.read_heading is not None and self.cfg.heading_correction_enabled
+
+    def _steer(self, angle):
+        self.drive.steer(angle)
+        self.data['steer_deg'] = angle
+
+    def _center(self):
+        self.drive.straight()
+        self.data['steer_deg'] = 0
+
+    def _heading_yaw(self, now):
+        try:
+            sample = self.read_heading()
+            yaw, stamp = sample['yaw_deg'], sample['captured_at']
+            if any(type(x) not in (int,float) or not math.isfinite(x) for x in (yaw,stamp)):
+                return None
+        except (KeyError,TypeError,ValueError):
+            return None
+        now = max(now,self.clock())
+        if stamp > now or now-stamp > self.cfg.gyro_max_age_seconds:
+            return None
+        return float(yaw)
+
+    def _lock_heading_reference(self, now):
+        if not self._heading_enabled():
+            return
+        self.heading_ref = self._heading_yaw(now)
+        self.data['heading_status'] = 'ACTIVE' if self.heading_ref is not None else 'GYRO_UNAVAILABLE'
+
+    def _correct_heading(self, now):
+        # Without a gyro this keeps the centered steering from the settle step.
+        if not self._heading_enabled():
+            return
+        yaw = self._heading_yaw(now)
+        if yaw is None:
+            self.data['heading_status'] = 'GYRO_UNAVAILABLE'
+            if self.data['steer_deg'] != 0:
+                self._center()
+            return
+        if self.heading_ref is None:
+            self.heading_ref = yaw  # Gyro became ready after the settle step.
+        # Yaw is counterclockwise-positive: drifting left gives a positive error
+        # and a positive (manufacturer "right") steering angle.
+        error = yaw-self.heading_ref
+        limit = self.cfg.heading_max_steer_deg
+        steer = 0 if abs(error) < self.cfg.heading_deadband_deg else \
+            int(round(max(-limit,min(limit,self.cfg.heading_gain*error))))
+        self.data.update(heading_status='ACTIVE',heading_error_deg=round(error,2))
+        if steer != self.data['steer_deg']:
+            self._steer(steer) if steer else self._center()
+            emit('steer_command',steer_deg=steer,heading_error_deg=round(error,2))

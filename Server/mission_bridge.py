@@ -10,6 +10,9 @@ from picar_mission.config import load_config
 from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
 from picar_mission.arm_sequence import ArmSequence, load_profile
+from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
+from picar_mission.heading import GyroHeading
+from picar_mission.qr_scan import emit
 from threading import RLock
 
 config = load_config()
@@ -18,6 +21,8 @@ controller = None
 _lock = RLock()
 _cancelled = False
 _servo = None
+_ultrasound = None
+gyro = None
 
 
 class DriveAdapter:
@@ -33,6 +38,12 @@ class DriveAdapter:
         if self.locked:
             raise RuntimeError('DRIVE_LOCKED_AFTER_STOP')
         self.steering.moveAngle(0,0)
+
+    def steer(self, angle):
+        # Relative to the servo center; positive is the manufacturer's "right".
+        if self.locked:
+            raise RuntimeError('DRIVE_LOCKED_AFTER_STOP')
+        self.steering.moveAngle(0,angle)
 
     def forward(self, speed):
         if self.locked:
@@ -62,20 +73,49 @@ class ArmAdapter:
         self.servo.stopWiggle()
 
 
+def _read_arm_angles():
+    return ArmAdapter(_servo).read_angles() if _servo is not None else None
+
+
+def _read_distance():
+    return _ultrasound.read_sample() if _ultrasound is not None else None
+
+
+# Demonstration CSVs for arm learning; reads commanded angles/sensors only.
+recorder = DemoRecorder(ROOT / 'data' / 'demos', _read_arm_angles, _read_distance)
+
+
 def automatic_enabled():
     return config.auto_approach_enabled
 
 
+def _start_gyro():
+    """MPU6050 yaw for heading hold; drive without correction if it is missing."""
+    try:
+        from mpu6050 import mpu6050
+        sensor = mpu6050(0x68)
+        heading = GyroHeading(lambda: sensor.get_gyro_data()['z'], z_sign=config.gyro_z_sign,
+                              calibration_seconds=config.gyro_calibration_seconds)
+    except Exception as exc:
+        emit('gyro_unavailable', message=str(exc))
+        return None
+    heading.start()
+    return heading
+
+
 def configure(move, steering, ultrasound):
-    global controller, _servo
+    global controller, _servo, _ultrasound, gyro
     with _lock:
         if controller is not None:
             return
         move.motorStop()
-        _servo = steering
+        _servo, _ultrasound = steering, ultrasound
+        if config.auto_approach_enabled and config.heading_correction_enabled:
+            gyro = _start_gyro()
         arm = ArmSequence(ArmAdapter(steering),load_profile()) if config.arm_enabled else None
         controller = DirectMissionController(config,DriveAdapter(move,steering),
-                                             ultrasound.read_sample,runtime.snapshot,arm_sequence=arm)
+                                             ultrasound.read_sample,runtime.snapshot,arm_sequence=arm,
+                                             read_heading=None if gyro is None else gyro.read_sample)
         if _cancelled:
             cancel()
         else:
@@ -97,7 +137,8 @@ def status():
         return {**qr,'control_ready':True,'qr':qr,'approach':controller.snapshot(),
                 'commanded_servo_angles_deg':angles}
     return {**controller.snapshot(),'control_ready':True,'qr':qr,
-            'commanded_servo_angles_deg':angles}
+            'commanded_servo_angles_deg':angles,
+            'gyro':None if gyro is None else gyro.snapshot()}
 
 
 STOP_COMMANDS = frozenset({'stop','DS','TS','LRstop','armstop','HAstop',
@@ -119,6 +160,10 @@ def cancel(reason='USER_STOP'):
 def allow_command(command, response=None):
     """Reserve all motion sources, including QR wait and stopped wait states."""
     if not config.auto_approach_enabled:
+        if command in ARM_COMMANDS:
+            recorder.note_command(command)
+        elif command in STOP_COMMANDS:
+            recorder.note_command(None)
         return True
     if command in STOP_COMMANDS:
         # The old UI sends these on releasing even a blocked manual button.
@@ -136,6 +181,9 @@ def allow_command(command, response=None):
 
 
 def shutdown():
+    recorder.close()
+    if gyro is not None:
+        gyro.stop()
     if controller is not None:
         controller.stop()
     if _servo is not None and getattr(controller,'arm',None) is None:
@@ -145,3 +193,4 @@ def shutdown():
 
 def submit_frame(frame):
     runtime.submit_frame(frame)
+    recorder.submit_frame(frame)

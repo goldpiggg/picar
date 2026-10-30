@@ -20,6 +20,7 @@ class Drive:
     def __init__(self): self.commands=[]
     def stop(self): self.commands.append(('stop',0))
     def straight(self): self.commands.append(('steer',0))
+    def steer(self,angle): self.commands.append(('steer',angle))
     def forward(self,speed): self.commands.append(('forward',speed))
 
 

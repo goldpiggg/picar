@@ -42,6 +42,36 @@ def mission_stop():
     return jsonify(mission_bridge.status())
 
 
+@app.route('/record')
+def record_page():
+    return send_from_directory(str(mission_bridge.ROOT / 'picar_mission'), 'record.html')
+
+
+@app.route('/record/status')
+def record_status():
+    from flask import jsonify
+    return jsonify(mission_bridge.recorder.status())
+
+
+@app.route('/record/<action>', methods=['POST'])
+def record_action(action):
+    from flask import jsonify, request
+    body = request.get_json(silent=True) or {}
+    recorder = mission_bridge.recorder
+    try:
+        if action == 'start':
+            result = recorder.start(body.get('side'), body.get('note', ''))
+        elif action == 'mark':
+            result = recorder.mark(body.get('task'), body.get('label'), body.get('ok', True))
+        elif action == 'stop':
+            result = recorder.stop(body.get('success'), body.get('stop_distance_cm'), body.get('note'))
+        else:
+            return jsonify(error='unknown action'), 404
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(result=result, status=recorder.status())
+
+
 @app.route('/mission')
 def mission_page():
     return send_from_directory(str(mission_bridge.ROOT / 'picar_mission'), 'status.html')
