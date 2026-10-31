@@ -6,7 +6,7 @@
     "base": [15, 165],
     "shoulder": [20, 160],
     "elbow": [20, 160],
-    "gripper": [30, 150]
+    "gripper": [0, 180]
   },
   "gripper_deg": {"open": 110, "closed": 70},
   "speed_deg_per_second": 20,

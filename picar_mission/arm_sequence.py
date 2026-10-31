@@ -58,7 +58,7 @@ class ArmProfile:
             raise ValueError('Exactly four named arm joints required; steering is excluded')
         for name,value in angles.items():
             if not number(value) or not self.limits[name][0]<=value<=self.limits[name][1]:
-                raise ValueError('Angle outside configured limit: '+name)
+                raise ValueError('Angle outside configured limit: %s %s (allowed %s~%s)'%(name,value,*self.limits[name]))
 
     def plan(self, direction):
         if direction not in ('LEFT','RIGHT'):
