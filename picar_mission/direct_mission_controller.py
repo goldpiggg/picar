@@ -1,7 +1,7 @@
 """One QR -> settle steering -> slow forward with gyro heading hold -> pulses to target.
 
-Motor power is set in volts and converted to PWM with the battery voltage read
-once at the start, so a full and a low battery drive at the same slow speed.
+Motor power is set in volts and sent as percent of Move.REFERENCE_VOLTS (5 V);
+Move.py rescales that by the measured battery, so any charge drives the same.
 Inside pulse_zone_cm the wheels stop; each cycle then lets the car settle,
 takes the median of fresh echoes, and either finishes within the tolerance or
 sends one short forward/backward pulse sized from the movement seen so far.
@@ -15,6 +15,7 @@ from .qr_scan import emit
 
 ZONE_SAMPLES = 3          # Fresh echoes whose median must be inside pulse_zone_cm.
 ZONE_EXIT_MARGIN_CM = 2.  # Settled this far beyond the zone: it was a false entry.
+REFERENCE_VOLTS = 5.     # Must match Server/Move.py REFERENCE_VOLTS.
 
 
 class DirectMissionController(MissionController):
@@ -206,7 +207,7 @@ class DirectMissionController(MissionController):
 
     # -- battery-compensated power and pulse approach ------------------------
     def _set_power(self):
-        """Read the battery once per mission; mid-drive sag would wobble speed."""
+        """Fix the 5 V-referenced PWM; the battery reading is kept for the status."""
         volts, source = None, 'FALLBACK'
         if self.read_battery is not None:
             try:
@@ -218,16 +219,16 @@ class DirectMissionController(MissionController):
         else:
             volts = self.cfg.battery_fallback_volts
             emit('battery_fallback',battery_volts=volts)
-        self.cruise_pwm = self._pwm(self.cfg.cruise_motor_volts,volts)
-        self.pulse_pwm = self._pwm(self.cfg.pulse_motor_volts,volts)
+        self.cruise_pwm = self._pwm(self.cfg.cruise_motor_volts)
+        self.pulse_pwm = self._pwm(self.cfg.pulse_motor_volts)
         self.data.update(battery_volts=round(volts,2),battery_source=source,
                          cruise_pwm=self.cruise_pwm,pulse_pwm=self.pulse_pwm,
                          configured_speed=self.cruise_pwm)
 
     @staticmethod
-    def _pwm(motor_volts, battery_volts):
-        # Move.py maps 0..100 to throttle 0..1 of the battery voltage.
-        return round(min(100.,100.*motor_volts/battery_volts),1)
+    def _pwm(motor_volts):
+        # Move.py treats 0..100 as percent of 5 V and compensates the battery.
+        return round(min(100.,100.*motor_volts/REFERENCE_VOLTS),1)
 
     def _begin_settle(self, now):
         self._stop()

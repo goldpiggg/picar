@@ -24,7 +24,7 @@ def instant_steering(cfg=None):
 
 class Harness:
     def __init__(self,direction='LEFT',cfg=None,gyro=False,battery=7.):
-        # 2.8V/7V cruise = PWM 40, 3V/7V pulse = PWM 42.9.
+        # 2.8V and 3V of the 5V reference = PWM 56 and 60 at any battery.
         self.time=0.
         self.battery=battery
         self.sequence=0
@@ -68,7 +68,7 @@ class DirectTests(unittest.TestCase):
             state=h.echo(80.)
             self.assertEqual(state['state'],'DRIVING')
             self.assertEqual(state['first_direction'],direction)
-            self.assertEqual(h.drive.commands,[('stop',0),('steer',10.),('steer',0),('forward',40)])
+            self.assertEqual(h.drive.commands,[('stop',0),('steer',10.),('steer',0),('forward',56.)])
 
     def test_echo_published_during_snapshot_is_not_rejected_as_future(self):
         h=Harness()
@@ -78,13 +78,13 @@ class DirectTests(unittest.TestCase):
         h.controller.read_sample=latest
         h.controller.step()
         self.assertEqual(h.controller.snapshot()['state'],'DRIVING')
-        self.assertIn(('forward',40),h.drive.commands)
+        self.assertIn(('forward',56.),h.drive.commands)
 
     def test_constant_forward_then_brake_at_pulse_zone(self):
         h=Harness()
         states=[h.echo(d)['state'] for d in [80.,50.,40.,38.1,38.,37.]]
         self.assertEqual(states,['DRIVING']*5+['PULSE_SETTLE'])
-        self.assertEqual([x for x in h.drive.commands if x[0]=='forward'],[('forward',40)])
+        self.assertEqual([x for x in h.drive.commands if x[0]=='forward'],[('forward',56.)])
         self.assertEqual(h.drive.commands[-1],('stop',0))
         self.assertFalse(h.controller.snapshot()['approach_complete'])
 
@@ -113,7 +113,7 @@ class DirectTests(unittest.TestCase):
         h=Harness();h.echo(80.);h.near(37.)
         state=h.settle(34.)
         self.assertEqual(state['state'],'PULSING')
-        self.assertEqual(h.drive.commands[-1],('forward',42.9))
+        self.assertEqual(h.drive.commands[-1],('forward',60.))
         self.assertEqual((state['pulse_count'],state['last_pulse_seconds']),(1,.15))
         self.assertEqual(h.finish_pulse()['state'],'PULSE_SETTLE')
         self.assertEqual(h.drive.commands[-1],('stop',0))
@@ -128,7 +128,7 @@ class DirectTests(unittest.TestCase):
         h=Harness();h.echo(80.);h.near(37.)
         state=h.settle(27.)
         self.assertEqual(state['state'],'PULSING')
-        self.assertEqual(h.drive.commands[-1],('backward',42.9))
+        self.assertEqual(h.drive.commands[-1],('backward',60.))
 
     def test_stalled_pulse_is_lengthened_within_limits(self):
         h=Harness();h.echo(80.);h.near(37.)
@@ -165,23 +165,23 @@ class DirectTests(unittest.TestCase):
         h.time=start+.15
         self.assertEqual(h.controller._wait_seconds(),0.)
 
-    def test_battery_voltage_sets_pwm_once_at_start(self):
-        for battery,cruise,pulse,source in [(8.4,33.3,35.7,'MEASURED'),(6.,46.7,50.,'MEASURED'),
-                                            (None,37.8,40.5,'FALLBACK'),(0.,37.8,40.5,'FALLBACK')]:
+    def test_pwm_is_percent_of_5v_at_any_battery(self):
+        # 2.8 V and 3.0 V of a 5 V reference; Move.py compensates the battery.
+        for battery,source in [(8.4,'MEASURED'),(6.,'MEASURED'),(None,'FALLBACK'),(0.,'FALLBACK')]:
             with self.subTest(battery=battery):
                 h=Harness(battery=battery);state=h.echo(80.)
                 self.assertEqual((state['cruise_pwm'],state['pulse_pwm'],state['battery_source']),
-                                 (cruise,pulse,source))
-                self.assertEqual(h.drive.commands[-1],('forward',cruise))
-                h.battery=5.;h.echo(70.)  # Sag mid-drive does not change speed.
-                self.assertEqual(h.controller.snapshot()['cruise_pwm'],cruise)
+                                 (56.,60.,source))
+                self.assertEqual(h.drive.commands[-1],('forward',56.))
+                h.battery=5.;h.echo(70.)
+                self.assertEqual(h.controller.snapshot()['cruise_pwm'],56.)
 
     def test_single_short_echo_does_not_enter_pulse_zone(self):
         h=Harness();h.echo(80.)
         for d in [70.,20.,68.,66.,15.,64.]:
             state=h.echo(d)
             self.assertEqual(state['state'],'DRIVING')
-        self.assertEqual([x for x in h.drive.commands if x[0]=='forward'],[('forward',40)])
+        self.assertEqual([x for x in h.drive.commands if x[0]=='forward'],[('forward',56.)])
         self.assertEqual(h.controller.snapshot()['pulse_count'],0)
 
     def test_first_short_echo_is_confirmed_before_driving(self):
@@ -189,7 +189,7 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(state['state'],'DRIVING')
         self.assertNotIn('forward',[x[0] for x in h.drive.commands])
         self.assertEqual(h.echo(80.)['state'],'DRIVING')
-        self.assertEqual(h.drive.commands[-1],('forward',40))
+        self.assertEqual(h.drive.commands[-1],('forward',56.))
 
     def test_false_zone_entry_far_from_target_resumes_driving(self):
         h=Harness();h.echo(80.);h.near(37.)  # e.g. a passing object in front.
@@ -197,7 +197,7 @@ class DirectTests(unittest.TestCase):
         self.assertEqual((state['state'],state['pulse_count']),('DRIVING',0))
         self.assertNotIn('pulse_command',[c[0] for c in h.drive.commands])
         self.assertEqual(h.echo(60.)['state'],'DRIVING')
-        self.assertEqual(h.drive.commands[-1],('forward',40))
+        self.assertEqual(h.drive.commands[-1],('forward',56.))
         h.near(37.)
         self.assertEqual(h.settle(30.)['state'],'STOPPED_WAIT')
 
@@ -236,7 +236,7 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(h.drive.commands[-1],('stop',0))
         self.assertFalse(state['target_stop_latched'])
         self.assertEqual(h.echo(70.)['state'],'DRIVING')
-        self.assertEqual(h.drive.commands[-1],('forward',40))
+        self.assertEqual(h.drive.commands[-1],('forward',56.))
 
     def test_permanent_sensor_failure_stays_stopped_and_times_out(self):
         h=Harness();h.echo(80.);h.echo(None)
@@ -331,6 +331,7 @@ class DirectTests(unittest.TestCase):
         move=importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules,modules): spec.loader.exec_module(move)
         move.setup()
+        move.read_battery=lambda:7.
         bridge=test_approach.OfficialConnectionTests().load_bridge()
         steering=[]
         drive=bridge.DriveAdapter(move,SimpleNamespace(moveAngle=lambda *args:steering.append(args)))
@@ -339,6 +340,7 @@ class DirectTests(unittest.TestCase):
             lambda:dict(distance_cm=80.,captured_at=now[0]),
             lambda:dict(first_direction='LEFT'),clock=lambda:now[0],read_battery=lambda:7.)
         controller.step()
+        # 56% of 5 V on a 7 V pack is 2.8 V, i.e. 40% duty.
         self.assertAlmostEqual(move.motor1.throttle,-.4)
         self.assertAlmostEqual(move.motor2.throttle,-.4)
         self.assertEqual(steering,[(0,10.),(0,0)])
@@ -348,8 +350,8 @@ class DirectTests(unittest.TestCase):
         now[0]+=.3
         for _ in range(5): now[0]+=.06;controller.step()
         self.assertEqual(controller.snapshot()['state'],'PULSING')
-        self.assertAlmostEqual(move.motor1.throttle,.429)  # Backward pulse flips sign.
-        self.assertAlmostEqual(move.motor2.throttle,.429)
+        self.assertAlmostEqual(move.motor1.throttle,3/7)  # Backward pulse flips sign; 3 V of 7 V.
+        self.assertAlmostEqual(move.motor2.throttle,3/7)
         now[0]=controller.pulse_until;controller.step()
         controller.read_sample=lambda:dict(distance_cm=30.,captured_at=now[0])
         now[0]+=.3
@@ -381,7 +383,7 @@ class DirectTests(unittest.TestCase):
                 lambda:dict(distance_cm=80.,captured_at=time.monotonic()),runtime.snapshot,
                 read_battery=lambda:7.)
             controller.step()
-            self.assertIn(('forward',40),drive.commands)
+            self.assertIn(('forward',56.),drive.commands)
         finally:
             runtime.stop()
 
@@ -397,7 +399,7 @@ class SteeringTests(unittest.TestCase):
         self.assertEqual(h.echo(80.,dt=.2)['state'],'STEER_SETTLE')
         self.assertNotIn('forward',[c[0] for c in h.drive.commands])
         self.assertEqual(h.echo(80.,dt=.15)['state'],'DRIVING')
-        self.assertEqual(h.drive.commands[-1],('forward',40))
+        self.assertEqual(h.drive.commands[-1],('forward',56.))
 
     def test_zero_preload_centers_immediately(self):
         h=Harness(cfg=replace(load_config(),direct_steer_preload_deg=0.))
@@ -427,7 +429,7 @@ class SteeringTests(unittest.TestCase):
             steers.append(h.controller.snapshot()['steer_deg'])
         self.assertEqual(steers,[6,12,-3,0])
         self.assertEqual(h.controller.snapshot()['heading_error_deg'],.5)
-        self.assertEqual([c for c in h.drive.commands if c[0]=='forward'],[('forward',40)])
+        self.assertEqual([c for c in h.drive.commands if c[0]=='forward'],[('forward',56.)])
 
     def test_gyro_loss_centers_and_keeps_driving(self):
         h=Harness(gyro=True);h.echo(80.)
@@ -456,7 +458,7 @@ class SteeringTests(unittest.TestCase):
         self.assertEqual(h.drive.commands[-2:],[('stop',0),('steer',0)])
         h.yaw=20.  # Pulses stay straight; heading hold is off near the target.
         h.settle(34.)
-        self.assertEqual(h.drive.commands[-1],('forward',42.9))
+        self.assertEqual(h.drive.commands[-1],('forward',60.))
         h.finish_pulse()
         self.assertEqual(h.settle(30.)['state'],'STOPPED_WAIT')
         self.assertNotIn(('steer',12),h.drive.commands[-8:])

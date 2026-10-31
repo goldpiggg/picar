@@ -53,7 +53,7 @@ class ConfigTests(unittest.TestCase):
             lambda:dict(distance_cm=80.,captured_at=1.),
             lambda:dict(first_direction='LEFT'),clock=lambda:1.,read_battery=lambda:7.)
         controller.step()
-        self.assertIn(('forward',40),drive.commands)
+        self.assertIn(('forward',56.),drive.commands)
 
     def test_disabled_arm_settings_are_not_loaded_and_angles_remain_visible(self):
         from dataclasses import replace

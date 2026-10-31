@@ -57,6 +57,16 @@ rad = 0.5
 scGear = RPIservo.ServoCtrl()
 scGear.moveInit()
 scGear.start()
+RPIservo.start_hold_keeper()
+
+# After "grab" is released the gripper is driven GRIP_SEAT_DEG past that point
+# for GRIP_SEAT_SECONDS to clamp the object, then eased to GRIP_HOLD_DEG past
+# it to keep pressing. Most servos reach full torque within ~3-5 deg, so larger
+# hold values add heat and current, not grip.
+GRIP_SEAT_DEG = 8
+GRIP_HOLD_DEG = 4
+GRIP_SEAT_SECONDS = 1.0
+grip_closing = False
 
 init_pwm0 = scGear.initPos[0]
 init_pwm1 = scGear.initPos[1]
@@ -207,6 +217,7 @@ def switchCtrl(command_input, response):
 def robotCtrl(command_input, response):
     if not mission_bridge.allow_command(command_input,response):
         return
+    global grip_closing
     if 'forward' == command_input:
         move.move(speed_set, 1, "mid")
     
@@ -266,13 +277,18 @@ def robotCtrl(command_input, response):
         scGear.stopWiggle()
 
     elif 'grab' == command_input:
+        grip_closing = True
         scGear.singleServo(4, -1, 7)
 
     elif 'loose' == command_input:
+        grip_closing = False
         scGear.singleServo(4, 1, 7)
 
     elif 'stop' == command_input:
         scGear.stopWiggle()
+        if grip_closing:  # Squeeze once per grab, not on every repeated stop.
+            grip_closing = False
+            scGear.squeeze(4, -1, GRIP_SEAT_DEG, GRIP_HOLD_DEG, GRIP_SEAT_SECONDS)
     elif 'home' == command_input:
         scGear.moveServoInit([0])
         scGear.moveServoInit([1])
