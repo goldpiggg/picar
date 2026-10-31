@@ -156,6 +156,7 @@ class ServoCtrl(threading.Thread):
             self.bufferPos[i] = self.lastPos[i]
 
         while self.nowPos != self.goalPos:
+            started = time.monotonic()
             for i in range(0,servo_num):
                 if self.lastPos[i] < self.goalPos[i]:
                     self.bufferPos[i] += self.pwmGenOut(self.scSpeed[i])/(1/self.scDelay)
@@ -175,7 +176,7 @@ class ServoCtrl(threading.Thread):
                     self.posUpdate()
                     return 1
             self.posUpdate()
-            time.sleep(self.scDelay-self.scMoveTime)
+            self.paceStep(started)
 
         else:
             self.pause()
@@ -219,7 +220,15 @@ class ServoCtrl(threading.Thread):
         self.resume()
 
 
+    def paceStep(self, started):
+        # One interpolation step per scDelay. The fixed scMoveTime allowance
+        # assumed a slow set_angle; now that it no longer re-inits the chip,
+        # sleeping scDelay-scMoveTime (0) let manual moves run unthrottled.
+        time.sleep(max(0, self.scDelay-(time.monotonic()-started)))
+
+
     def moveWiggle(self):
+        started = time.monotonic()
         self.bufferPos[self.wiggleID] += self.wiggleDirection*self.sc_direction[self.wiggleID]*self.pwmGenOut(self.scSpeed[self.wiggleID])/(1/self.scDelay)
         newNow = int(round(self.bufferPos[self.wiggleID], 0))
         if self.bufferPos[self.wiggleID] > self.maxPos[self.wiggleID]:self.bufferPos[self.wiggleID] = self.maxPos[self.wiggleID]
@@ -230,7 +239,7 @@ class ServoCtrl(threading.Thread):
             self.set_angle(self.wiggleID, self.nowPos[self.wiggleID])
         else:
             self.stopWiggle()
-        time.sleep(self.scDelay-self.scMoveTime)
+        self.paceStep(started)
 
 
     def stopWiggle(self):
