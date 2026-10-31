@@ -61,10 +61,11 @@ RPIservo.start_hold_keeper()
 
 # After "grab" is released the gripper is driven GRIP_SEAT_DEG past that point
 # for GRIP_SEAT_SECONDS to clamp the object, then eased to GRIP_HOLD_DEG past
-# it to keep pressing. Most servos reach full torque within ~3-5 deg, so larger
-# hold values add heat and current, not grip.
-GRIP_SEAT_DEG = 8
-GRIP_HOLD_DEG = 4
+# it to keep pressing. 4 deg held too weakly on the real gripper (its plastic
+# linkage flexes before the servo reaches full torque), so it holds at 8 deg.
+# Larger values add stall current and heat; lower them if the servo gets hot.
+GRIP_SEAT_DEG = 12
+GRIP_HOLD_DEG = 8
 GRIP_SEAT_SECONDS = 1.0
 grip_closing = False
 
