@@ -72,8 +72,8 @@ def Motor(channel,direction,motor_speed):
 
   speed = map(motor_speed, 0, 100, 0, 1.0)
 
-  pwm_motor.frequency = FREQ
-  # Prevent the servo from affecting the frequency of the motor
+  # Frequency is set once in setup(); servos share the same 50 Hz chip and no
+  # longer rewrite it. Rewriting it here sleeps the chip and drops servo PWM.
   if direction == -1:
     speed = -speed
   if channel == 1:

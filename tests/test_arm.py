@@ -73,6 +73,34 @@ class PoseTests(unittest.TestCase):
         self.assertEqual(driver.read_angles(),dict(base=0.,shoulder=80.,elbow=100.,gripper=180.))
 
 
+class ServoDriverTests(unittest.TestCase):
+    def test_pca9685_frequency_is_written_once_not_per_servo_command(self):
+        import importlib.util
+        from unittest.mock import patch
+        events=[]
+        class PCA:
+            def __init__(self,*args,**kwargs):
+                events.append('init');self.channels=list(range(16))
+            def __setattr__(self,name,value):
+                if name=='frequency': events.append(('frequency',value))
+                object.__setattr__(self,name,value)
+        class Servo:
+            def __init__(self,channel,**kwargs): self.channel=channel
+            def __setattr__(self,name,value):
+                if name=='angle': events.append(('angle',self.channel,value))
+                object.__setattr__(self,name,value)
+        modules={'board':SimpleNamespace(SCL=1,SDA=2),
+                 'busio':SimpleNamespace(I2C=lambda *args:object()),
+                 'adafruit_pca9685':SimpleNamespace(PCA9685=PCA),
+                 'adafruit_motor':SimpleNamespace(servo=SimpleNamespace(Servo=Servo))}
+        spec=importlib.util.spec_from_file_location('test_rpiservo',ROOT/'Server/RPIservo.py')
+        module=importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules,modules): spec.loader.exec_module(module)
+        sc=module.ServoCtrl()
+        sc.set_angle(2,80);sc.set_angle(2,81);sc.setPWM(4,110)
+        self.assertEqual(events,['init',('frequency',50),('angle',2,80),('angle',2,81),('angle',4,110)])
+
+
 class SavePoseTests(unittest.TestCase):
     def setUp(self):
         self.dir=tempfile.TemporaryDirectory()

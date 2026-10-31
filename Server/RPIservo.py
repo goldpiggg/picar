@@ -25,6 +25,8 @@ init_pwm7 = 90
 servo_num = 8
 i2c = None
 pwm_servo = None
+_servo_channels = {}
+_pca_lock = threading.Lock()
 
 class ServoCtrl(threading.Thread):
 
@@ -60,12 +62,18 @@ class ServoCtrl(threading.Thread):
 
 
     def set_angle(self,ID, angle):
-        i2c = busio.I2C(SCL, SDA)
-        pwm_servo = PCA9685(i2c, address=0x5f)
-
-        pwm_servo.frequency = 50
-        servo_angle = servo.Servo(pwm_servo.channels[ID], min_pulse=500, max_pulse=2400,actuation_range=180)
-        servo_angle.angle = angle
+        # Writing PCA9685.frequency sleeps the chip, cutting PWM on every
+        # channel for a few ms. Doing that per command let loaded arm joints
+        # sag, so the chip is set up once and only the channel is written here.
+        global i2c,pwm_servo
+        with _pca_lock:
+            if pwm_servo is None:
+                i2c = busio.I2C(SCL, SDA)
+                pwm_servo = PCA9685(i2c, address=0x5f)
+                pwm_servo.frequency = 50
+            if ID not in _servo_channels:
+                _servo_channels[ID] = servo.Servo(pwm_servo.channels[ID], min_pulse=500, max_pulse=2400,actuation_range=180)
+            _servo_channels[ID].angle = angle
 
     def pause(self):
         self.__flag.clear()
