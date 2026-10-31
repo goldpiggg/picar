@@ -256,18 +256,42 @@ class SavePoseTests(unittest.TestCase):
 
 
 class PoseRecallTests(unittest.TestCase):
-    def test_arm_pose_moves_at_profile_speed_and_leaves_gripper(self):
+    def test_arm_pose_moves_smoothly_and_leaves_gripper(self):
         arm=FakeArm();arm.angles['gripper']=70.
         targets=pose_targets(load_profile(),'left_pick')
         self.assertEqual(set(targets),{'base','shoulder','elbow'})
-        t=[0.];move=PoseMove(arm,targets,20,clock=lambda:t[0])
-        t[0]=.05;self.assertFalse(move.tick())
-        self.assertEqual(arm.angles,dict(base=89.,shoulder=91.,elbow=91.,gripper=70.))
-        for _ in range(60):
-            t[0]+=.05
-            if move.tick(): break
-        self.assertEqual(arm.angles,dict(base=55.,shoulder=105.,elbow=115.,gripper=70.))
+        t=[0.];move=PoseMove(arm,targets,10,clock=lambda:t[0])
+        path=[arm.read_angles()]
+        for _ in range(400):
+            t[0]+=.02;done=move.tick();path.append(arm.read_angles())
+            if done: break
+        self.assertEqual(path[-1],dict(base=55.,shoulder=105.,elbow=115.,gripper=70.))
         self.assertFalse(any(joint=='gripper' for joint,_ in arm.writes))
+        steps=[max(abs(b[j]-a[j]) for j in JOINTS) for a,b in zip(path,path[1:])]
+        self.assertLessEqual(max(steps),10*.02+1e-9)  # Never faster than the speed.
+        self.assertLess(steps[0],.01);self.assertLess(steps[-1],.01)  # Soft start and stop.
+        # Joints move together: each covers the same fraction of its span.
+        mid=path[len(path)//2]
+        fractions=[(mid[j]-90.)/(targets[j]-90.) for j in targets]
+        self.assertAlmostEqual(min(fractions),max(fractions))
+
+    def test_profile_carry_speed_is_optional_and_bounded(self):
+        profile=load_profile()
+        self.assertEqual(profile.carry_speed,10.)  # Default for profiles without the key.
+        self.assertTrue(profile.holding(72.));self.assertFalse(profile.holding(108.))
+        self.assertEqual((profile.move_speed(True),profile.move_speed(False)),(10.,20))
+        for carry in [0,25,float('nan')]:
+            data=copy.deepcopy(profile.values);data['carry_speed_deg_per_second']=carry
+            with self.subTest(carry=carry),self.assertRaises(ValueError): ArmProfile(data)
+
+    def test_bridge_recall_uses_carry_speed_while_holding(self):
+        bridge,servo=self.bridge_with_servo(False)
+        servo.nowPos[4]=72.  # Gripper near "closed": an object is held.
+        info=bridge.move_to_pose('center_carry');bridge.stop_pose_move()
+        self.assertEqual(info['speed_deg_per_second'],10.)
+        servo.nowPos[4]=110.
+        info=bridge.move_to_pose('center_clear');bridge.stop_pose_move()
+        self.assertEqual(info['speed_deg_per_second'],20)
 
     def test_gripper_slot_moves_only_the_gripper(self):
         self.assertEqual(pose_targets(load_profile(),'gripper_closed'),{'gripper':70})
@@ -335,9 +359,26 @@ class SequenceTests(unittest.TestCase):
     def test_step_timeout_stops_sequence(self):
         data=copy.deepcopy(calibrated_profile().values);data['step_timeout_seconds']=1.
         driver=FakeArm();s=ArmSequence(driver,ArmProfile(data));s.start('LEFT',0.)
-        with self.assertRaisesRegex(RuntimeError,'STEP_TIMEOUT'): s.tick(2.)
+        # First move: 20 deg at 20 deg/s on the eased path takes 1.875 s, so the
+        # 1 s timeout counts from there.
+        with self.assertRaisesRegex(RuntimeError,'STEP_TIMEOUT'): s.tick(3.)
         self.assertEqual(s.state,'ERROR')
         self.assertGreater(driver.holds,1)
+
+    def test_carry_steps_use_slow_eased_speed(self):
+        driver=FakeArm();s=ArmSequence(driver,calibrated_profile());s.start('LEFT',0.)
+        fastest={True:0.,False:0.}
+        for tick in range(1,20000):
+            before=driver.read_angles();step=s.steps[s.index]
+            closed=step['gripper']=='closed' or s.holding
+            s.tick(tick*.02)
+            moved=max(abs(driver.angles[j]-before[j]) for j in JOINTS)
+            fastest[closed]=max(fastest[closed],moved/.02)
+            if s.state=='COMPLETE': break
+        self.assertEqual(s.state,'COMPLETE')
+        self.assertLessEqual(fastest[True],10+1e-6)   # carry_speed while holding
+        self.assertLessEqual(fastest[False],20+1e-6)  # speed_deg_per_second otherwise
+        self.assertGreater(fastest[False],10)
 
 
 class HandoffTests(unittest.TestCase):

@@ -11,6 +11,9 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 JOINTS = ('base','shoulder','elbow','gripper')
+DEFAULT_CARRY_SPEED = 10.
+PEAK_SPEED_RATIO = 1.875  # ease() peaks at 1.875x its average speed.
+MAX_TICK_SECONDS = .1  # A stalled loop must not jump ahead on the path.
 POSES = ('center_clear','center_carry','left_pick_above','left_pick',
          'left_place_above','left_place','right_pick_above','right_pick',
          'right_place_above','right_place')
@@ -50,8 +53,20 @@ class ArmProfile:
                 raise ValueError('Invalid arm setting: '+key)
         if values['speed_deg_per_second']>60:
             raise ValueError('Arm command rate must not exceed 60 degrees/second')
+        # Optional, so profiles taught before this setting keep loading.
+        carry = values.get('carry_speed_deg_per_second',min(DEFAULT_CARRY_SPEED,values['speed_deg_per_second']))
+        if not number(carry) or not 0<carry<=values['speed_deg_per_second']:
+            raise ValueError('carry_speed_deg_per_second must be >0 and <= speed_deg_per_second')
+        self.carry_speed = carry
         if values['step_timeout_seconds']<=max(values['settle_seconds'],values['grip_settle_seconds']):
             raise ValueError('Arm step timeout is shorter than settling time')
+
+    def holding(self, gripper_angle):
+        """True when the gripper is nearer its closed than its open angle."""
+        return abs(gripper_angle-self.gripper['closed'])<abs(gripper_angle-self.gripper['open'])
+
+    def move_speed(self, holding):
+        return self.carry_speed if holding else self.values['speed_deg_per_second']
 
     def check_angles(self, angles):
         if set(angles)!=set(JOINTS):
@@ -124,27 +139,56 @@ def pose_targets(profile, name):
     raise ValueError('Unknown pose name: '+str(name))
 
 
+def ease(x):
+    """Minimum-jerk profile: speed and acceleration are zero at both ends, so
+    a loaded joint is never kicked into motion or stopped dead (which made the
+    arm bounce and shake a held object loose)."""
+    x = min(max(x,0.),1.)
+    return x*x*x*(10.+x*(6.*x-15.))
+
+
+class Motion:
+    """One coordinated move: all joints start and arrive together on the eased
+    profile, and no joint ever exceeds `speed` degrees/second."""
+    def __init__(self, start, targets, speed):
+        self.start = {joint:float(start[joint]) for joint in targets}
+        self.targets = dict(targets)
+        span = max([abs(goal-self.start[j]) for j,goal in self.targets.items()]+[0.])
+        self.duration = PEAK_SPEED_RATIO*span/speed
+        self.elapsed = 0.
+
+    @property
+    def done(self):
+        return self.elapsed>=self.duration
+
+    def advance(self, dt):
+        self.elapsed += min(max(dt,0.),MAX_TICK_SECONDS)
+        s = 1. if self.done else ease(self.elapsed/self.duration)
+        return {j:self.start[j]+(goal-self.start[j])*s for j,goal in self.targets.items()}
+
+
+def write_changed(driver, current, angles):
+    for joint,value in angles.items():
+        if abs(value-current[joint])>1e-9:
+            driver.set_joint(joint,value)
+            current[joint] = value
+
+
 class PoseMove:
-    """Rate-limited move of the given joints to fixed targets (teach mode)."""
+    """Eased move of the given joints to fixed targets (teach mode)."""
     def __init__(self, driver, targets, speed, clock=time.monotonic):
-        self.driver,self.targets,self.speed,self.clock = driver,dict(targets),speed,clock
+        self.driver,self.clock = driver,clock
         angles = driver.read_angles()
-        self.current = {joint:angles[joint] for joint in self.targets}
+        self.current = {joint:angles[joint] for joint in targets}
+        self.motion = Motion(self.current,targets,speed)
         self.last_tick = clock()
 
     def tick(self, now=None):
-        """Advance by speed*elapsed; True once every joint is on target."""
+        """Advance along the path; True once every joint is on target."""
         now=self.clock() if now is None else now
-        dt=min(max(now-self.last_tick,0.),.1)  # A stalled loop must not jump.
-        self.last_tick=now
-        limit=self.speed*dt
-        for joint,goal in self.targets.items():
-            delta=goal-self.current[joint]
-            value=self.current[joint]+max(-limit,min(limit,delta))
-            if abs(value-self.current[joint])>1e-9:
-                self.driver.set_joint(joint,value)
-                self.current[joint]=value
-        return all(abs(self.current[j]-goal)<1e-7 for j,goal in self.targets.items())
+        dt,self.last_tick = now-self.last_tick,now
+        write_changed(self.driver,self.current,self.motion.advance(dt))
+        return self.motion.done
 
 
 class ArmSequence:
@@ -158,6 +202,9 @@ class ArmSequence:
         self.started_at=None
         self.step_at=None
         self.reached_at=None
+        self.motion=None
+        self.planned_seconds=0.
+        self.holding=False
         self.error=None
         self.completed_transfers=0
 
@@ -169,6 +216,7 @@ class ArmSequence:
         self.steps=self.profile.plan(direction)
         self.current=dict(self.driver.read_angles())
         self.profile.check_angles(self.current)
+        self.holding=self.profile.holding(self.current['gripper'])
         now=self.clock() if now is None else now
         self.last_tick=self.started_at=self.step_at=now
         self.driver.hold()
@@ -179,24 +227,23 @@ class ArmSequence:
             return self.state
         now=self.clock() if now is None else now
         try:
-            if now-self.started_at>self.profile.values['sequence_timeout_seconds']:
-                raise RuntimeError('ARM_SEQUENCE_TIMEOUT')
-            if now-self.step_at>self.profile.values['step_timeout_seconds']:
-                raise RuntimeError('ARM_STEP_TIMEOUT')
             if now<self.last_tick:
                 raise RuntimeError('ARM_CLOCK_REVERSED')
-            dt=min(now-self.last_tick,.1)  # A stalled loop must not jump to the next pose.
-            self.last_tick=now
             step=self.steps[self.index]
-            limit=self.profile.values['speed_deg_per_second']*dt
-            for joint in JOINTS:
-                goal=step['angles_deg'][joint]
-                delta=goal-self.current[joint]
-                value=self.current[joint]+max(-limit,min(limit,delta))
-                if abs(value-self.current[joint])>1e-9:
-                    self.driver.set_joint(joint,value)
-                    self.current[joint]=value
-            reached=all(abs(self.current[j]-step['angles_deg'][j])<1e-7 for j in JOINTS)
+            if self.motion is None:
+                # Slow down whenever an object is (or is about to be) held.
+                carrying=self.holding or step['gripper']=='closed'
+                self.motion=Motion(self.current,step['angles_deg'],self.profile.move_speed(carrying))
+                self.planned_seconds+=self.motion.duration
+            # Timeouts count beyond the planned motion time, so a slow carry
+            # speed cannot trip them; they still catch a stalled control loop.
+            if now-self.started_at>self.profile.values['sequence_timeout_seconds']+self.planned_seconds:
+                raise RuntimeError('ARM_SEQUENCE_TIMEOUT')
+            if now-self.step_at>self.profile.values['step_timeout_seconds']+self.motion.duration:
+                raise RuntimeError('ARM_STEP_TIMEOUT')
+            dt,self.last_tick=now-self.last_tick,now
+            write_changed(self.driver,self.current,self.motion.advance(dt))
+            reached=self.motion.done
             if reached and self.reached_at is None:
                 self.reached_at=now
             if reached and now-self.reached_at>=step['settle_seconds']:
@@ -207,6 +254,8 @@ class ArmSequence:
                     self.driver.hold()
                     self.state='COMPLETE'
                 else:
+                    self.holding=step['gripper']=='closed'
+                    self.motion=None
                     self.step_at=now
                     self.reached_at=None
         except Exception as exc:
