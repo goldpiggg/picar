@@ -9,7 +9,7 @@ if str(ROOT) not in sys.path:
 from picar_mission.config import load_config
 from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
-from picar_mission.arm_sequence import ArmSequence, load_profile
+from picar_mission.arm_sequence import ArmSequence, load_profile, save_pose as save_arm_pose
 from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
 from picar_mission.heading import GyroHeading
 from picar_mission.qr_scan import emit
@@ -152,6 +152,19 @@ def status():
     return {**controller.snapshot(),'control_ready':True,'qr':qr,
             'commanded_servo_angles_deg':angles,
             'gyro':None if gyro is None else gyro.snapshot()}
+
+
+def save_pose(name):
+    """Teach mode only: store the current commanded arm angles in arm_poses.json."""
+    if config.auto_approach_enabled:
+        raise ValueError('auto_approach_enabled=false 수동 모드에서만 저장할 수 있습니다')
+    try:
+        angles = ArmAdapter(_servo).read_angles() if _servo is not None else None
+    except (AttributeError,TypeError,IndexError):
+        angles = None
+    if angles is None:
+        raise ValueError('서보 명령각을 아직 읽을 수 없습니다')
+    return save_arm_pose(name,angles)
 
 
 STOP_COMMANDS = frozenset({'stop','DS','TS','LRstop','armstop','HAstop',

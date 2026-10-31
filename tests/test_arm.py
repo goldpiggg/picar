@@ -2,14 +2,16 @@
 import copy
 from dataclasses import replace
 from pathlib import Path
+import shutil
 import sys
+import tempfile
 import unittest
 from types import SimpleNamespace
 import test_approach
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
-from picar_mission.arm_sequence import ArmProfile,ArmSequence,load_profile,JOINTS
+from picar_mission.arm_sequence import ArmProfile,ArmSequence,load_profile,save_pose,JOINTS
 from picar_mission.config import MissionConfig
 from test_approach import Harness
 
@@ -67,6 +69,36 @@ class PoseTests(unittest.TestCase):
         driver.set_joint('base',125);driver.set_joint('gripper',70);driver.hold()
         self.assertEqual(calls,[(1,125),(4,70),('hold',)])
         with self.assertRaises(KeyError): driver.set_joint('steering',90)
+
+
+class SavePoseTests(unittest.TestCase):
+    def setUp(self):
+        self.dir=tempfile.TemporaryDirectory()
+        self.path=Path(self.dir.name)/'arm_poses.json'
+        shutil.copy(ROOT/'arm_poses.json',self.path)
+
+    def tearDown(self): self.dir.cleanup()
+
+    def test_pose_and_gripper_slots_are_written_without_confirming_calibration(self):
+        angles=dict(base=61.04,shoulder=98.,elbow=112.5,gripper=74.)
+        self.assertEqual(save_pose('left_pick',angles,self.path),dict(base=61.,shoulder=98.,elbow=112.5))
+        self.assertEqual(save_pose('gripper_closed',angles,self.path),dict(gripper=74.))
+        profile=load_profile(self.path)
+        self.assertEqual(profile.positions['left_pick'],dict(base=61.,shoulder=98.,elbow=112.5))
+        self.assertEqual(profile.gripper['closed'],74.)
+        self.assertFalse(profile.calibrated)
+
+    def test_unknown_name_and_out_of_limit_angles_leave_file_unchanged(self):
+        before=self.path.read_text(encoding='utf-8')
+        for name,angles in [('steering',dict(base=90,shoulder=90,elbow=90,gripper=90)),
+                            ('left_pick',dict(base=5,shoulder=90,elbow=90,gripper=90))]:
+            with self.subTest(name=name),self.assertRaises(ValueError): save_pose(name,angles,self.path)
+        self.assertEqual(self.path.read_text(encoding='utf-8'),before)
+
+    def test_bridge_refuses_to_save_in_automatic_mode(self):
+        bridge=test_approach.OfficialConnectionTests().load_bridge()
+        bridge.config=replace(bridge.config,auto_approach_enabled=True)
+        with self.assertRaises(ValueError): bridge.save_pose('left_pick')
 
 
 class SequenceTests(unittest.TestCase):

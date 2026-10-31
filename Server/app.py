@@ -72,6 +72,31 @@ def record_action(action):
     return jsonify(result=result, status=recorder.status())
 
 
+@app.route('/poses')
+def poses_page():
+    return send_from_directory(str(mission_bridge.ROOT / 'picar_mission'), 'poses.html')
+
+
+@app.route('/poses/data')
+def poses_data():
+    from flask import jsonify
+    import json
+    profile = json.loads((mission_bridge.ROOT / 'arm_poses.json').read_text(encoding='utf-8'))
+    return jsonify(profile=profile, manual=not mission_bridge.config.auto_approach_enabled,
+                   angles=mission_bridge.status().get('commanded_servo_angles_deg'))
+
+
+@app.route('/poses/save', methods=['POST'])
+def poses_save():
+    from flask import jsonify, request
+    body = request.get_json(silent=True) or {}
+    try:
+        saved = mission_bridge.save_pose(body.get('name'))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(name=body.get('name'), saved=saved)
+
+
 @app.route('/mission')
 def mission_page():
     return send_from_directory(str(mission_bridge.ROOT / 'picar_mission'), 'status.html')
