@@ -3,9 +3,9 @@
   "calibration_confirmed": false,
   "note": "ALL VALUES ARE PROVISIONAL EXAMPLES. Measure each pose on the actual robot before enabling automatic arm motion.",
   "joint_limits_deg": {
-    "base": [15, 165],
-    "shoulder": [20, 160],
-    "elbow": [20, 160],
+    "base": [0, 180],
+    "shoulder": [0, 180],
+    "elbow": [0, 180],
     "gripper": [0, 180]
   },
   "gripper_deg": {"open": 110, "closed": 70},
