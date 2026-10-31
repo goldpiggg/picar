@@ -99,6 +99,16 @@ class ServoDriverTests(unittest.TestCase):
         sc=module.ServoCtrl()
         sc.set_angle(2,80);sc.set_angle(2,81);sc.setPWM(4,110)
         self.assertEqual(events,['init',('frequency',50),('angle',2,80),('angle',2,81),('angle',4,110)])
+        # Holding a manual arm button: each step is paced to scDelay, ~0.6 deg/step.
+        sleeps=[]
+        with patch.object(module.time,'sleep',sleeps.append):
+            sc.singleServo(4,-1,7);del events[:]
+            for _ in range(10): sc.moveWiggle()
+        self.assertTrue(all(.08<s<=.09 for s in sleeps),sleeps)
+        angles=[e[2] for e in events]
+        self.assertEqual(len(angles),10)
+        self.assertTrue(all(abs(b-a)<=1 for a,b in zip([110]+angles,angles)),angles)
+        self.assertEqual(angles[-1],104)
 
 
 class SavePoseTests(unittest.TestCase):
