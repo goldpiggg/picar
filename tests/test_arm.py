@@ -131,7 +131,7 @@ class SavePoseTests(unittest.TestCase):
     def test_unknown_name_and_out_of_limit_angles_leave_file_unchanged(self):
         before=self.path.read_text(encoding='utf-8')
         for name,angles in [('steering',dict(base=90,shoulder=90,elbow=90,gripper=90)),
-                            ('left_pick',dict(base=5,shoulder=90,elbow=90,gripper=90))]:
+                            ('left_pick',dict(base=181,shoulder=90,elbow=90,gripper=90))]:
             with self.subTest(name=name),self.assertRaises(ValueError): save_pose(name,angles,self.path)
         self.assertEqual(self.path.read_text(encoding='utf-8'),before)
 
