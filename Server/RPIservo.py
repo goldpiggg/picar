@@ -26,7 +26,44 @@ servo_num = 8
 i2c = None
 pwm_servo = None
 _servo_channels = {}
+_last_angles = {}
 _pca_lock = threading.Lock()
+
+SERVO_FREQ = 50
+PCA_MODE1_SLEEP = 0x10
+
+
+def restore_if_reset():
+    """Re-arm the PCA9685 if a power dip reset it; True when it was restored.
+
+    A stalled gripper draws enough current to sag the supply. If the PCA9685
+    browns out it comes back asleep with every output off, so all servos go
+    limp although the code still thinks they hold their angles.
+    """
+    with _pca_lock:
+        if pwm_servo is None:
+            return False
+        expected = int(pwm_servo.reference_clock_speed/4096.0/SERVO_FREQ+0.5)-1
+        if not pwm_servo.mode1_reg & PCA_MODE1_SLEEP and pwm_servo.prescale_reg == expected:
+            return False
+        pwm_servo.reset()
+        pwm_servo.frequency = SERVO_FREQ
+        for ID, angle in _last_angles.items():
+            _servo_channels[ID].angle = angle
+        return True
+
+
+def start_hold_keeper(period=0.5):
+    """Check the PWM chip in the background so a held object is re-gripped."""
+    def keep():
+        while True:
+            time.sleep(period)
+            try:
+                if restore_if_reset():
+                    print('PCA9685 reset by a power dip; servo PWM restored')
+            except Exception as e:  # The I2C bus can fail during the dip itself.
+                print('Servo hold check failed:', e)
+    threading.Thread(target=keep, name='servo-hold-keeper', daemon=True).start()
 
 class ServoCtrl(threading.Thread):
 
@@ -70,10 +107,11 @@ class ServoCtrl(threading.Thread):
             if pwm_servo is None:
                 i2c = busio.I2C(SCL, SDA)
                 pwm_servo = PCA9685(i2c, address=0x5f)
-                pwm_servo.frequency = 50
+                pwm_servo.frequency = SERVO_FREQ
             if ID not in _servo_channels:
                 _servo_channels[ID] = servo.Servo(pwm_servo.channels[ID], min_pulse=500, max_pulse=2400,actuation_range=180)
             _servo_channels[ID].angle = angle
+            _last_angles[ID] = angle
 
     def pause(self):
         self.__flag.clear()
@@ -245,6 +283,34 @@ class ServoCtrl(threading.Thread):
     def stopWiggle(self):
         self.pause()
         self.posUpdate()
+
+
+    def squeeze(self, ID, direcInput, seatDegrees, holdDegrees, seatSeconds):
+        # A servo only pushes in proportion to how far it is from its target.
+        # Releasing "grab" right at contact leaves almost no error, so a weak
+        # grip. Drive seatDegrees past contact to clamp the object firmly, then
+        # ease to holdDegrees: still near full holding torque, but far less
+        # stall current and heat than pressing at seatDegrees indefinitely.
+        # Wait one step so a wiggle step already running cannot overwrite it.
+        time.sleep(self.scDelay)
+        contact = self.nowPos[ID]
+        def goal(offset):
+            target = contact + direcInput*self.sc_direction[ID]*offset
+            return max(self.minPos[ID], min(self.maxPos[ID], target))
+        seated = goal(seatDegrees)
+        self.setPWM(ID, seated)
+
+        def ease():
+            if self.nowPos[ID] != seated:  # Gripper was moved meanwhile.
+                return
+            # Not setPWM: its pause() would stop another joint being jogged.
+            held = goal(holdDegrees)
+            self.lastPos[ID] = self.nowPos[ID] = self.goalPos[ID] = held
+            self.bufferPos[ID] = float(held)
+            self.set_angle(ID, held)
+        timer = threading.Timer(seatSeconds, ease)
+        timer.daemon = True
+        timer.start()
 
 
     def singleServo(self, ID, direcInput, speedSet):

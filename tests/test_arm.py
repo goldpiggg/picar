@@ -111,6 +111,120 @@ class ServoDriverTests(unittest.TestCase):
         self.assertEqual(angles[-1],104)
 
 
+    def load_servo_module(self):
+        import importlib.util
+        from unittest.mock import patch
+        writes=[]
+        class PCA:
+            reference_clock_speed=25000000
+            def __init__(self,*args,**kwargs):
+                self.channels=list(range(16));self.mode1_reg=0x20;self.prescale_reg=0
+            def reset(self): writes.append('reset');self.mode1_reg=0
+            def __setattr__(self,name,value):
+                if name=='frequency':
+                    writes.append(('frequency',value));self.prescale_reg=121
+                object.__setattr__(self,name,value)
+        class Servo:
+            def __init__(self,channel,**kwargs): self.channel=channel
+            def __setattr__(self,name,value):
+                if name=='angle': writes.append(('angle',self.channel,value))
+                object.__setattr__(self,name,value)
+        modules={'board':SimpleNamespace(SCL=1,SDA=2),
+                 'busio':SimpleNamespace(I2C=lambda *args:object()),
+                 'adafruit_pca9685':SimpleNamespace(PCA9685=PCA),
+                 'adafruit_motor':SimpleNamespace(servo=SimpleNamespace(Servo=Servo))}
+        spec=importlib.util.spec_from_file_location('test_rpiservo_hold',ROOT/'Server/RPIservo.py')
+        module=importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules,modules): spec.loader.exec_module(module)
+        return module,writes
+
+    def test_pwm_chip_reset_by_power_dip_restores_held_angles(self):
+        module,writes=self.load_servo_module()
+        self.assertFalse(module.restore_if_reset())  # Nothing set up yet.
+        sc=module.ServoCtrl()
+        sc.setPWM(2,80);sc.setPWM(4,62)
+        del writes[:]
+        self.assertFalse(module.restore_if_reset())
+        self.assertEqual(writes,[])
+        module.pwm_servo.mode1_reg=0x11;module.pwm_servo.prescale_reg=0x1e  # Power-on defaults.
+        self.assertTrue(module.restore_if_reset())
+        self.assertEqual(writes,['reset',('frequency',50),('angle',2,80),('angle',4,62)])
+        self.assertFalse(module.restore_if_reset())
+
+    def squeeze(self,module,sc,*args):
+        from unittest.mock import patch
+        timers=[]
+        class Timer:
+            def __init__(self,seconds,fn): timers.append((seconds,fn))
+            def start(self): pass
+        with patch.object(module.time,'sleep',lambda s:None),              patch.object(module.threading,'Timer',Timer):
+            sc.squeeze(*args)
+        return timers
+
+    def test_squeeze_seats_firmly_then_eases_to_hold_past_contact(self):
+        module,writes=self.load_servo_module()
+        sc=module.ServoCtrl()
+        sc.setPWM(4,75)  # "grab" released here, at contact.
+        timers=self.squeeze(module,sc,4,-1,8,4,1.)
+        self.assertEqual((sc.nowPos[4],writes[-1]),(67,('angle',4,67)))
+        self.assertEqual(timers[0][0],1.)
+        timers[0][1]()
+        # Still 4 deg past contact: grips harder than stopping at 75.
+        self.assertEqual((sc.nowPos[4],sc.goalPos[4],writes[-1]),(71,71,('angle',4,71)))
+        self.assertEqual(module._last_angles[4],71)  # Restored after a power dip.
+
+    def test_squeeze_ease_skips_when_gripper_moved_and_stays_in_limits(self):
+        module,writes=self.load_servo_module()
+        sc=module.ServoCtrl()
+        sc.setPWM(4,75)
+        timers=self.squeeze(module,sc,4,-1,8,4,1.)
+        sc.setPWM(4,110)  # "loose" before the ease fired.
+        timers[0][1]()
+        self.assertEqual(writes[-1],('angle',4,110))
+        sc.setPWM(4,3)
+        timers=self.squeeze(module,sc,4,-1,8,4,1.)
+        self.assertEqual(writes[-1],('angle',4,0))
+        timers[0][1]()
+        self.assertEqual(writes[-1],('angle',4,0))
+
+
+class MotorVoltageTests(unittest.TestCase):
+    def load_move(self):
+        import importlib.util
+        from unittest.mock import patch
+        created=[]
+        class PCA:
+            def __init__(self,*args,**kwargs): created.append(self);self.channels=list(range(16))
+        class Motor:
+            def __init__(self,*args): self.throttle=None
+        modules={'board':SimpleNamespace(SCL=1,SDA=2),
+                 'busio':SimpleNamespace(I2C=lambda *args:object()),
+                 'adafruit_pca9685':SimpleNamespace(PCA9685=PCA),
+                 'adafruit_motor':SimpleNamespace(motor=SimpleNamespace(DCMotor=Motor,SLOW_DECAY=1))}
+        spec=importlib.util.spec_from_file_location('test_move_volts',ROOT/'Server/Move.py')
+        move=importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules,modules): spec.loader.exec_module(move)
+        return move,created
+
+    def test_speed_is_percent_of_5v_whatever_the_battery(self):
+        move,_=self.load_move();move.setup()
+        for battery,throttle in [(8.4,.5*5/8.4),(7.4,.5*5/7.4),(5.,.5),(None,.5*5/7.4),(2.,.5*5/7.4)]:
+            with self.subTest(battery=battery):
+                move.read_battery=lambda:battery
+                move.Motor(1,1,50)
+                self.assertAlmostEqual(move.motor1.throttle,throttle)
+                # Motor voltage is the same 2.5 V at any measured charge.
+                if battery and battery>=4: self.assertAlmostEqual(move.motor1.throttle*battery,2.5)
+        move.read_battery=lambda:4.5
+        move.Motor(1,1,100)
+        self.assertEqual(move.motor1.throttle,1.)  # Cannot exceed the pack.
+
+    def test_reconnect_reuses_the_shared_pwm_chip(self):
+        move,created=self.load_move()
+        move.setup();move.setup()
+        self.assertEqual(len(created),1)
+
+
 class SavePoseTests(unittest.TestCase):
     def setUp(self):
         self.dir=tempfile.TemporaryDirectory()

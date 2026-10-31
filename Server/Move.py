@@ -4,6 +4,7 @@
 # Author      : Adeept
 # Date		  : 2025/03/12
 
+import sys
 import time
 from board import SCL, SDA
 import busio
@@ -24,6 +25,14 @@ M2_Direction  =  -1
 
 FREQ = 50
 
+# Motor speeds 0..100 mean percent of REFERENCE_VOLTS, not of the battery.
+# The duty cycle is rescaled by the measured battery voltage, so the motors see
+# the same voltage whether the pack is full (8.4 V), nominal or nearly empty.
+REFERENCE_VOLTS = 5.0
+FALLBACK_BATTERY_VOLTS = 7.4
+
+pwm_motor = None
+
 
 '''
 Motor interface.
@@ -38,8 +47,29 @@ def map(x,in_min,in_max,out_min,out_max):
   return (x - in_min)/(in_max - in_min) *(out_max - out_min) +out_min
 
 
+def read_battery():
+    # WebServer runs Voltage.BatteryLevelMonitor; reuse its filtered average
+    # instead of opening the ADC again. 0.0 means no reading yet.
+    return getattr(sys.modules.get('Voltage'),'average_voltage',0.)
+
+
+def battery_volts():
+    try:
+        volts = read_battery()
+    except Exception:
+        volts = None
+    if isinstance(volts,(int,float)) and not isinstance(volts,bool) and 4. <= volts <= 12.:
+        return volts
+    return FALLBACK_BATTERY_VOLTS
+
+
 def setup():
-    global motor1,motor2,motor3,motor4,pwm_motor,pwm_motor
+    global motor1,motor2,motor3,motor4,pwm_motor
+    # Every websocket connection calls setup(). Re-creating the driver resets
+    # and re-clocks the PCA9685 shared with the servos, briefly cutting the
+    # gripper's PWM, so the first driver is reused.
+    if pwm_motor is not None:
+        return
     i2c = busio.I2C(SCL, SDA)
     pwm_motor = PCA9685(i2c, address=0x5f) #default 0x40
     
@@ -70,7 +100,7 @@ def Motor(channel,direction,motor_speed):
   elif motor_speed < 0:
     motor_speed = 0
 
-  speed = map(motor_speed, 0, 100, 0, 1.0)
+  speed = min(1.0, map(motor_speed, 0, 100, 0, 1.0)*REFERENCE_VOLTS/battery_volts())
 
   # Frequency is set once in setup(); servos share the same 50 Hz chip and no
   # longer rewrite it. Rewriting it here sleeps the chip and drops servo PWM.
@@ -114,8 +144,10 @@ def move(speed, direction, turn, radius=0.6):   # 0 < radius <= 1
                 Motor(2, -M2_Direction, speed)
 
 def destroy():
+    global pwm_motor
     motorStop()
     pwm_motor.deinit()
+    pwm_motor = None
 
 
 def video_Tracking_Move(speed, direction):   # 0 < radius <= 1  
