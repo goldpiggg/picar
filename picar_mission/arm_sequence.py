@@ -90,6 +90,30 @@ def load_profile(path=None):
     return ArmProfile(json.loads(path.read_text(encoding='utf-8')))
 
 
+GRIPPER_SLOTS = ('gripper_open','gripper_closed')
+
+
+def save_pose(name, angles, path=None):
+    """Store taught commanded angles under a pose (base/shoulder/elbow) or a
+    gripper slot. Never touches calibration_confirmed; the whole profile is
+    re-validated before the file is replaced."""
+    path = ROOT/'arm_poses.json' if path is None else Path(path)
+    values = json.loads(path.read_text(encoding='utf-8'))
+    if name in POSES:
+        saved = {joint:round(float(angles[joint]),1) for joint in JOINTS[:3]}
+        values['positions'][name] = saved
+    elif name in GRIPPER_SLOTS:
+        saved = {'gripper':round(float(angles['gripper']),1)}
+        values['gripper_deg'][name.split('_')[1]] = saved['gripper']
+    else:
+        raise ValueError('Unknown pose name: '+str(name))
+    ArmProfile(values)
+    tmp = path.with_name(path.name+'.tmp')
+    tmp.write_text(json.dumps(values,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    tmp.replace(path)
+    return saved
+
+
 class ArmSequence:
     def __init__(self, driver, profile, clock=time.monotonic):
         self.driver,self.profile,self.clock = driver,profile,clock
