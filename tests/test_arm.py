@@ -69,6 +69,8 @@ class PoseTests(unittest.TestCase):
         driver.set_joint('base',125);driver.set_joint('gripper',70);driver.hold()
         self.assertEqual(calls,[(1,125),(4,70),('hold',)])
         with self.assertRaises(KeyError): driver.set_joint('steering',90)
+        servo.nowPos[4],servo.nowPos[1]=181,-1  # manufacturer wiggle overshoot
+        self.assertEqual(driver.read_angles(),dict(base=0.,shoulder=80.,elbow=100.,gripper=180.))
 
 
 class SavePoseTests(unittest.TestCase):

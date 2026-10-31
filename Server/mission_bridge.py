@@ -68,7 +68,10 @@ class ArmAdapter:
         self.servo = servo
 
     def read_angles(self):
-        return {name:float(self.servo.nowPos[channel]) for name,channel in self.channels.items()}
+        # RPIservo.moveWiggle stores nowPos before clamping, so holding a manual
+        # button past the end reads 181/-1 although the servo never got it.
+        return {name:min(180.,max(0.,float(self.servo.nowPos[channel])))
+                for name,channel in self.channels.items()}
 
     def set_joint(self, name, angle):
         self.servo.setPWM(self.channels[name],angle)
