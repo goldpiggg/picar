@@ -9,11 +9,12 @@ if str(ROOT) not in sys.path:
 from picar_mission.config import load_config
 from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
-from picar_mission.arm_sequence import ArmSequence, load_profile, save_pose as save_arm_pose
+from picar_mission.arm_sequence import ArmSequence, PoseMove, load_profile, pose_targets, save_pose as save_arm_pose
 from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
 from picar_mission.heading import GyroHeading
 from picar_mission.qr_scan import emit
-from threading import RLock
+from threading import Event, RLock, Thread
+import time
 
 config = load_config()
 runtime = MissionRuntime(config)
@@ -23,6 +24,7 @@ _cancelled = False
 _servo = None
 _ultrasound = None
 gyro = None
+_pose_move = None
 
 
 class DriveAdapter:
@@ -170,6 +172,47 @@ def save_pose(name):
     return save_arm_pose(name,angles)
 
 
+def move_to_pose(name):
+    """Teach mode only: move the arm to a saved pose at the profile speed."""
+    global _pose_move
+    if config.auto_approach_enabled:
+        raise ValueError('auto_approach_enabled=false 수동 모드에서만 이동할 수 있습니다')
+    if _servo is None:
+        raise ValueError('서보가 아직 준비되지 않았습니다')
+    profile = load_profile()
+    targets = pose_targets(profile,name)
+    stop_pose_move()
+    move = PoseMove(ArmAdapter(_servo),targets,profile.values['speed_deg_per_second'])
+    stop = Event()
+    info = dict(name=name,state='MOVING',targets=targets,error=None)
+
+    def run():
+        try:
+            while not stop.is_set():
+                if move.tick():
+                    info['state'] = 'DONE'
+                    return
+                time.sleep(.02)
+            info['state'] = 'STOPPED'
+        except Exception as exc:
+            info.update(state='ERROR',error=str(exc))
+
+    thread = Thread(target=run,daemon=True)
+    _pose_move = dict(info=info,stop=stop,thread=thread)
+    thread.start()
+    return pose_move_status()
+
+
+def stop_pose_move():
+    if _pose_move is not None and _pose_move['thread'].is_alive():
+        _pose_move['stop'].set()
+        _pose_move['thread'].join(1.)
+
+
+def pose_move_status():
+    return None if _pose_move is None else dict(_pose_move['info'])
+
+
 STOP_COMMANDS = frozenset({'stop','DS','TS','LRstop','armstop','HAstop',
                            'stopCV','automaticOff','trackLineOff','steadyCameraOff',
                            'keepDistanceOff'})
@@ -189,6 +232,8 @@ def cancel(reason='USER_STOP'):
 def allow_command(command, response=None):
     """Reserve all motion sources, including QR wait and stopped wait states."""
     if not config.auto_approach_enabled:
+        if command in ARM_COMMANDS or command in STOP_COMMANDS:
+            stop_pose_move()  # A manual button always wins over a recall move.
         if command in ARM_COMMANDS:
             recorder.note_command(command)
         elif command in STOP_COMMANDS:
@@ -210,6 +255,7 @@ def allow_command(command, response=None):
 
 
 def shutdown():
+    stop_pose_move()
     recorder.close()
     if gyro is not None:
         gyro.stop()

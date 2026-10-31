@@ -11,7 +11,7 @@ import test_approach
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
-from picar_mission.arm_sequence import ArmProfile,ArmSequence,load_profile,save_pose,JOINTS
+from picar_mission.arm_sequence import ArmProfile,ArmSequence,PoseMove,load_profile,pose_targets,save_pose,JOINTS
 from picar_mission.config import MissionConfig
 from test_approach import Harness
 
@@ -139,6 +139,49 @@ class SavePoseTests(unittest.TestCase):
         bridge=test_approach.OfficialConnectionTests().load_bridge()
         bridge.config=replace(bridge.config,auto_approach_enabled=True)
         with self.assertRaises(ValueError): bridge.save_pose('left_pick')
+
+
+class PoseRecallTests(unittest.TestCase):
+    def test_arm_pose_moves_at_profile_speed_and_leaves_gripper(self):
+        arm=FakeArm();arm.angles['gripper']=70.
+        targets=pose_targets(load_profile(),'left_pick')
+        self.assertEqual(set(targets),{'base','shoulder','elbow'})
+        t=[0.];move=PoseMove(arm,targets,20,clock=lambda:t[0])
+        t[0]=.05;self.assertFalse(move.tick())
+        self.assertEqual(arm.angles,dict(base=89.,shoulder=91.,elbow=91.,gripper=70.))
+        for _ in range(60):
+            t[0]+=.05
+            if move.tick(): break
+        self.assertEqual(arm.angles,dict(base=55.,shoulder=105.,elbow=115.,gripper=70.))
+        self.assertFalse(any(joint=='gripper' for joint,_ in arm.writes))
+
+    def test_gripper_slot_moves_only_the_gripper(self):
+        self.assertEqual(pose_targets(load_profile(),'gripper_closed'),{'gripper':70})
+        with self.assertRaises(ValueError): pose_targets(load_profile(),'steering')
+
+    def bridge_with_servo(self, auto):
+        bridge=test_approach.OfficialConnectionTests().load_bridge()
+        bridge.config=replace(bridge.config,auto_approach_enabled=auto)
+        servo=SimpleNamespace(nowPos=[90.]*8)
+        servo.setPWM=lambda channel,angle:servo.nowPos.__setitem__(channel,angle)
+        bridge._servo=servo
+        return bridge,servo
+
+    def test_bridge_refuses_recall_in_automatic_mode(self):
+        bridge,_=self.bridge_with_servo(True)
+        with self.assertRaises(ValueError): bridge.move_to_pose('center_carry')
+
+    def test_bridge_recall_reaches_pose_and_manual_button_cancels(self):
+        import time
+        bridge,servo=self.bridge_with_servo(False)
+        bridge.move_to_pose('center_carry')
+        bridge._pose_move['thread'].join(3)
+        self.assertEqual(bridge.pose_move_status()['state'],'DONE')
+        self.assertEqual(servo.nowPos[1:4],[90,80,100])
+        bridge.move_to_pose('left_pick');time.sleep(.1)
+        self.assertTrue(bridge.allow_command('armup'))
+        self.assertEqual(bridge.pose_move_status()['state'],'STOPPED')
+        self.assertNotEqual(servo.nowPos[1],55)
 
 
 class SequenceTests(unittest.TestCase):
