@@ -21,7 +21,7 @@ table{border-collapse:collapse;width:100%}th,td{padding:4px 8px;text-align:left;
 <thead><tr><th>이름</th><th>의미</th><th>저장된 값</th><th></th></tr></thead>
 <tbody id="rows"></tbody>
 </table></div>
-<p><b>이동</b>은 저장된 값으로 팔을 <code>speed_deg_per_second</code> 속도로 천천히 움직입니다. 팔 자세는 집게를 그대로 두고, 집게 줄은 집게만 움직입니다. 기본 웹 제어의 ARM 버튼을 누르면 이동이 바로 멈춥니다. 저장 후 서버를 재시작해야 자동 동작에 반영됩니다.</p>
+<p><b>이동</b>은 모든 관절이 함께 출발해 함께 도착하도록, 천천히 출발하고 천천히 멈추는 곡선으로 움직입니다. 집게가 닫힌 쪽에 가까우면(물체를 든 상태) <code>carry_speed_deg_per_second</code>(기본 10도/초), 아니면 <code>speed_deg_per_second</code>를 최고 속도로 씁니다. 팔 자세는 집게를 그대로 두고, 집게 줄은 집게만 움직입니다. 기본 웹 제어의 ARM 버튼을 누르면 이동이 바로 멈춥니다. 저장 후 서버를 재시작해야 자동 동작에 반영됩니다.</p>
 <img src="/video_feed" alt="카메라 영상">
 <script>
 const $=id=>document.getElementById(id), msg=t=>$('msg').textContent=t;

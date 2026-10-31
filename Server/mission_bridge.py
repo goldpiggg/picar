@@ -182,9 +182,12 @@ def move_to_pose(name):
     profile = load_profile()
     targets = pose_targets(profile,name)
     stop_pose_move()
-    move = PoseMove(ArmAdapter(_servo),targets,profile.values['speed_deg_per_second'])
+    driver = ArmAdapter(_servo)
+    speed = profile.move_speed(profile.holding(driver.read_angles()['gripper']))
+    move = PoseMove(driver,targets,speed)
     stop = Event()
-    info = dict(name=name,state='MOVING',targets=targets,error=None)
+    info = dict(name=name,state='MOVING',targets=targets,error=None,speed_deg_per_second=speed,
+                seconds=round(move.motion.duration,1))
 
     def run():
         try:
