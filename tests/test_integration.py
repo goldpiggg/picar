@@ -19,7 +19,7 @@ from picar_mission.runtime import MissionRuntime
 class ConfigTests(unittest.TestCase):
     def test_repository_defaults(self):
         c = load_config()
-        self.assertEqual((c.target_distance_cm, c.distance_offset_cm), (36., 0.))
+        self.assertEqual((c.target_distance_cm, c.distance_offset_cm), (30., 0.))
         self.assertEqual(c.camera_backend, 'usb')
 
     def test_bad_settings_rejected(self):
@@ -43,7 +43,7 @@ class ConfigTests(unittest.TestCase):
         from test_approach import Drive
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'config.json'
-            path.write_text(json.dumps(dict(target_distance_cm=60.,slow_distance_cm=5.,
+            path.write_text(json.dumps(dict(target_distance_cm=60.,pulse_zone_cm=70.,slow_distance_cm=5.,
                 distance_filter_size='unused',stop_samples=None,stop_timeout_seconds=0.,
                 arm_start_delay_seconds='unused',
                 direct_steer_preload_seconds=0.,direct_steer_settle_seconds=0.)))
@@ -51,7 +51,7 @@ class ConfigTests(unittest.TestCase):
         drive=Drive()
         controller=DirectMissionController(cfg,drive,
             lambda:dict(distance_cm=80.,captured_at=1.),
-            lambda:dict(first_direction='LEFT'),clock=lambda:1.)
+            lambda:dict(first_direction='LEFT'),clock=lambda:1.,read_battery=lambda:7.)
         controller.step()
         self.assertIn(('forward',40),drive.commands)
 
@@ -87,7 +87,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(state['first_direction'], 'RIGHT')
         self.assertEqual(state['state'], 'DIRECTION_CONFIRMED')
         self.assertFalse(state['automatic_motion_enabled'])
-        self.assertEqual(state['target_distance_cm'], 36.)
+        self.assertEqual(state['target_distance_cm'], 30.)
         runtime.process_frame('LEFT', .5, 4, FakeReader())
         self.assertEqual(runtime.snapshot()['first_direction'], 'RIGHT')
 

@@ -50,6 +50,11 @@ class DriveAdapter:
             raise RuntimeError('DRIVE_LOCKED_AFTER_STOP')
         self.move.move(speed,1,'mid')
 
+    def backward(self, speed):
+        if self.locked:
+            raise RuntimeError('DRIVE_LOCKED_AFTER_STOP')
+        self.move.move(speed,-1,'mid')
+
     def lock(self):
         self.locked = True
         self.stop()
@@ -85,6 +90,13 @@ def _read_distance():
 recorder = DemoRecorder(ROOT / 'data' / 'demos', _read_arm_angles, _read_distance)
 
 
+def _read_battery_volts():
+    # WebServer already runs Voltage.BatteryLevelMonitor; reuse its filtered
+    # average instead of opening the ADC a second time. 0.0 means not ready.
+    volts = getattr(sys.modules.get('Voltage'),'average_voltage',0.)
+    return volts if isinstance(volts,(int,float)) and volts > 0 else None
+
+
 def automatic_enabled():
     return config.auto_approach_enabled
 
@@ -115,7 +127,8 @@ def configure(move, steering, ultrasound):
         arm = ArmSequence(ArmAdapter(steering),load_profile()) if config.arm_enabled else None
         controller = DirectMissionController(config,DriveAdapter(move,steering),
                                              ultrasound.read_sample,runtime.snapshot,arm_sequence=arm,
-                                             read_heading=None if gyro is None else gyro.read_sample)
+                                             read_heading=None if gyro is None else gyro.read_sample,
+                                             read_battery=_read_battery_volts)
         if _cancelled:
             cancel()
         else:

@@ -203,12 +203,15 @@ class MissionController:
         try:
             while not self.stop_event.is_set():
                 self.step()
-                self.stop_event.wait(self.cfg.control_period_seconds)
+                self.stop_event.wait(self._wait_seconds())
         except Exception as exc:
             self.fail(str(exc))
         finally:
             with self.lock:
                 self._stop()
+
+    def _wait_seconds(self):
+        return self.cfg.control_period_seconds
 
     def stop(self):
         self.stop_event.set()
