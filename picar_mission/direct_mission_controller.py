@@ -6,11 +6,15 @@ Inside pulse_zone_cm the wheels stop; each cycle then lets the car settle,
 takes the median of fresh echoes, and either finishes within the tolerance or
 sends one short forward/backward pulse sized from the movement seen so far.
 """
+from collections import deque
 import math
 from statistics import median
 from .mission_controller import MissionController, TERMINAL
 from .distance import SensorFault
 from .qr_scan import emit
+
+ZONE_SAMPLES = 3          # Fresh echoes whose median must be inside pulse_zone_cm.
+ZONE_EXIT_MARGIN_CM = 2.  # Settled this far beyond the zone: it was a false entry.
 
 
 class DirectMissionController(MissionController):
@@ -31,6 +35,7 @@ class DirectMissionController(MissionController):
         self.cm_per_second = None
         self.next_pulse_seconds = self.cfg.pulse_seconds
         self.measure_values, self.measure_last = [], None
+        self.zone_values, self.zone_last = deque(maxlen=ZONE_SAMPLES), None
         self.data.update(drive_mode='direct', configured_speed=None,
                          implemented_stages=['qr_recognition','direct_approach','pulse_approach'],
                          stop_reason=None,target_stop_latched=False,steer_deg=0,
@@ -165,6 +170,7 @@ class DirectMissionController(MissionController):
                 # A temporary missed echo pauses the wheels, not the mission.
                 # Recovery is allowed only before the target-stop latch is set.
                 self._stop()
+                self.zone_values.clear()
                 if self.distance_retry_at is None:
                     self.distance_retry_at = max(now,self.clock())
                 self.data.update(distance_wait_reason=str(exc),distance_samples=0,
@@ -176,12 +182,19 @@ class DirectMissionController(MissionController):
                     emit('distance_retry',reason=str(exc),command_speed=0)
                 return
             self.distance_retry_at = None
-            if distance <= self.cfg.pulse_zone_cm:
+            if self.distance_stamp != self.zone_last:
+                self.zone_last = self.distance_stamp
+                self.zone_values.append(distance)
+            if len(self.zone_values)==ZONE_SAMPLES and median(self.zone_values) <= self.cfg.pulse_zone_cm:
                 # Brake here and finish with measured pulses, never by coasting.
+                # A median, not one echo, so a stray short echo far from the
+                # target cannot switch the whole approach to pulses.
                 self._begin_settle(now)
-                emit('drive_command',action='stop',pwm=0,distance_cm=round(distance,3),
+                emit('drive_command',action='stop',pwm=0,distance_cm=round(median(self.zone_values),3),
                      reason='PULSE_ZONE')
                 return
+            if distance <= self.cfg.pulse_zone_cm and self.data['command_speed']==0:
+                return  # Possibly already near: confirm before the first forward.
             if state=='WAIT_DISTANCE':
                 self._state('DRIVING',now)
             self._correct_heading(now)
@@ -248,6 +261,12 @@ class DirectMissionController(MissionController):
         distance = median(self.measure_values)
         self.data['distance_cm'] = round(distance,3)
         self._learn_pulse(distance)
+        if distance > self.cfg.pulse_zone_cm+ZONE_EXIT_MARGIN_CM:
+            # Still far from the target: drive there instead of spending pulses.
+            self.zone_values.clear()
+            emit('pulse_zone_exit',distance_cm=round(distance,2))
+            self._state('DRIVING',now)
+            return
         error = distance-self.cfg.target_distance_cm
         if abs(error) <= self.cfg.stop_tolerance_cm:
             self._stop_at_target(now,distance)
