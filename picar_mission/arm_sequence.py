@@ -114,6 +114,39 @@ def save_pose(name, angles, path=None):
     return saved
 
 
+def pose_targets(profile, name):
+    """Joint targets for one taught slot. Joints not listed stay where they are,
+    so recalling an arm pose never opens the gripper on a held object."""
+    if name in POSES:
+        return dict(profile.positions[name])
+    if name in GRIPPER_SLOTS:
+        return {'gripper':profile.gripper[name.split('_')[1]]}
+    raise ValueError('Unknown pose name: '+str(name))
+
+
+class PoseMove:
+    """Rate-limited move of the given joints to fixed targets (teach mode)."""
+    def __init__(self, driver, targets, speed, clock=time.monotonic):
+        self.driver,self.targets,self.speed,self.clock = driver,dict(targets),speed,clock
+        angles = driver.read_angles()
+        self.current = {joint:angles[joint] for joint in self.targets}
+        self.last_tick = clock()
+
+    def tick(self, now=None):
+        """Advance by speed*elapsed; True once every joint is on target."""
+        now=self.clock() if now is None else now
+        dt=min(max(now-self.last_tick,0.),.1)  # A stalled loop must not jump.
+        self.last_tick=now
+        limit=self.speed*dt
+        for joint,goal in self.targets.items():
+            delta=goal-self.current[joint]
+            value=self.current[joint]+max(-limit,min(limit,delta))
+            if abs(value-self.current[joint])>1e-9:
+                self.driver.set_joint(joint,value)
+                self.current[joint]=value
+        return all(abs(self.current[j]-goal)<1e-7 for j,goal in self.targets.items())
+
+
 class ArmSequence:
     def __init__(self, driver, profile, clock=time.monotonic):
         self.driver,self.profile,self.clock = driver,profile,clock

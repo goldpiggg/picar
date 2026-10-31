@@ -7,7 +7,7 @@
 body{font:16px/1.6 system-ui,sans-serif;max-width:850px;margin:24px auto;padding:0 16px;color:#182730;background:#f5f7f8}
 img{width:100%;max-width:640px;height:auto}a{color:#126079}
 button{font:inherit;padding:6px 14px;border:0;background:#126079;color:#fff;cursor:pointer}
-button:disabled{background:#9aa9ae;cursor:default}
+button:disabled{background:#9aa9ae;cursor:default}button.go{background:#2d7a3e}button.danger{background:#a91d25;padding:10px 20px}
 table{border-collapse:collapse;width:100%}th,td{padding:4px 8px;text-align:left;border-bottom:1px solid #d5e0e3;font-variant-numeric:tabular-nums}
 .wrap{overflow-x:auto}#msg{min-height:1.6em;font-weight:600}#live{font-size:1.2em}.warn{color:#a91d25}
 </style>
@@ -15,12 +15,13 @@ table{border-collapse:collapse;width:100%}th,td{padding:4px 8px;text-align:left;
 <p><a href="/" target="_blank">기본 웹 제어</a> 탭의 ARM Control로 자세를 맞춘 뒤, 여기서 해당 이름의 <b>저장</b>을 누르면 <code>arm_poses.json</code>에 바로 기록됩니다. 저장되는 값은 마지막 <b>명령각</b>이므로 실제 팔이 그 자세에 도달했는지 눈으로 확인하세요. 저장해도 <code>calibration_confirmed</code>는 바뀌지 않습니다.</p>
 <p id="mode"></p>
 <p id="live">현재 명령각 확인 중…</p>
+<p><button id="halt" class="danger" type="button">팔 이동 정지</button> <span id="move"></span></p>
 <p id="msg" role="status"></p>
 <div class="wrap"><table>
 <thead><tr><th>이름</th><th>의미</th><th>저장된 값</th><th></th></tr></thead>
 <tbody id="rows"></tbody>
 </table></div>
-<p>저장 후 서버를 재시작해야 자동 동작에 반영됩니다.</p>
+<p><b>이동</b>은 저장된 값으로 팔을 <code>speed_deg_per_second</code> 속도로 천천히 움직입니다. 팔 자세는 집게를 그대로 두고, 집게 줄은 집게만 움직입니다. 기본 웹 제어의 ARM 버튼을 누르면 이동이 바로 멈춥니다. 저장 후 서버를 재시작해야 자동 동작에 반영됩니다.</p>
 <img src="/video_feed" alt="카메라 영상">
 <script>
 const $=id=>document.getElementById(id), msg=t=>$('msg').textContent=t;
@@ -42,12 +43,15 @@ function render(d){
   const a=d.angles;
   $('live').textContent=a?'현재 명령각: '+['base','shoulder','elbow','gripper'].map(k=>`${k} ${a[k]}`).join(' · '):'현재 명령각: 아직 읽을 수 없음';
   if(!built){
-    $('rows').innerHTML=SLOTS.map(([n,t])=>`<tr><td><code>${n}</code></td><td>${t}</td><td id="v-${n}"></td><td><button data-name="${n}">저장</button></td></tr>`).join('');
+    $('rows').innerHTML=SLOTS.map(([n,t])=>`<tr><td><code>${n}</code></td><td>${t}</td><td id="v-${n}"></td><td><button data-name="${n}">저장</button> <button class="go" data-move="${n}">이동</button></td></tr>`).join('');
     document.querySelectorAll('[data-name]').forEach(b=>b.onclick=()=>save(b.dataset.name));
+    document.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>move(b.dataset.move));
     built=true;
   }
   SLOTS.forEach(([n])=>$('v-'+n).textContent=stored(d.profile,n));
-  document.querySelectorAll('[data-name]').forEach(b=>b.disabled=!manual||!a);
+  document.querySelectorAll('[data-name],[data-move]').forEach(b=>b.disabled=!manual||!a);
+  const m=d.move, label={MOVING:'이동 중',DONE:'도착',STOPPED:'정지됨',ERROR:'오류'};
+  $('move').textContent=m?`${m.name}: ${label[m.state]||m.state}`+(m.error?' — '+m.error:''):'';
 }
 async function save(name){
   try{const r=await fetch('/poses/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
@@ -56,6 +60,14 @@ async function save(name){
     msg(`저장됨: ${name} ← `+Object.entries(j.saved).map(([k,v])=>`${k} ${v}`).join(' · '));
   }catch(e){msg('저장 실패: '+e.message);}
 }
+async function post(url,body){
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+  const j=await r.json().catch(()=>({error:'HTTP '+r.status}));
+  if(!r.ok)throw Error(j.error||('HTTP '+r.status));
+  return j;
+}
+async function move(name){try{await post('/poses/move',{name});msg('이동 시작: '+name);}catch(e){msg('이동 실패: '+e.message);}}
+$('halt').onclick=async()=>{try{await post('/poses/stop');msg('팔 이동 정지');}catch(e){msg('정지 실패: '+e.message+' — 기본 웹 제어의 정지 버튼이나 전원을 사용하세요.');}};
 async function refresh(){try{const r=await fetch('/poses/data',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);render(await r.json());}catch(e){$('live').textContent='서버 연결 확인 필요: '+e.message;}finally{setTimeout(refresh,700);}}
 refresh();
 </script>
