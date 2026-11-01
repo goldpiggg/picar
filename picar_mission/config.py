@@ -63,6 +63,8 @@ class MissionConfig:
     gyro_max_age_seconds: float = 0.2
     gyro_z_sign: int = 1
     gyro_calibration_seconds: float = 1.5
+    # Web ARM/gripper button speed, degrees/second (RPIservo uses whole numbers).
+    arm_jog_speed: int = 10
 
 
 def load_config(path=None):
@@ -141,6 +143,8 @@ def load_config(path=None):
         value = getattr(cfg, name)
         if type(value) is not int or value < (1 if name=='pulse_samples' else 0):
             raise ValueError(name+' must be a nonnegative integer (pulse_samples >= 1)')
+    if type(cfg.arm_jog_speed) is not int or not 1 <= cfg.arm_jog_speed <= 30:
+        raise ValueError('arm_jog_speed must be an integer from 1 to 30')
     # Legacy precision settings remain readable for old files; the direct
     # controller does not construct or validate those unused gates.
     return cfg

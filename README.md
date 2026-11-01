@@ -124,6 +124,7 @@ sudo python3 Server/WebServer.py
 | `approach_timeout_seconds` | 40.0 | 주행 시간 한도 |
 | `auto_approach_enabled` | true | 자동 주행 사용 |
 | `arm_enabled` | false | 보정 완료된 팔 순서 사용 여부 |
+| `arm_jog_speed` | 10 | 기본 웹 ARM·집게 버튼 속도(도/초, 정수 1~30). 파일에 없으면 기본값 |
 | `direct_steer_preload_deg` / `_seconds` | 10.0 / 0.2 | 출발 전 가운데로 돌아오기 전에 먼저 보낼 조향각(양수=오른쪽)과 머무는 시간 |
 | `direct_steer_settle_seconds` | 0.3 | 가운데 정렬 후 출발까지 대기 |
 | `heading_correction_enabled` | true | 자이로 방향 유지 사용 |
