@@ -68,7 +68,8 @@ GRIP_SEAT_DEG = 18
 GRIP_HOLD_DEG = 14
 GRIP_SEAT_SECONDS = 1.0
 # Arm button jog speed: degrees/second (each 0.09 s step moves speed*0.09 deg).
-ARM_JOG_SPEED = 10
+# Set "arm_jog_speed" in mission_config.json; default 10.
+ARM_JOG_SPEED = mission_bridge.config.arm_jog_speed
 grip_closing = False
 
 init_pwm0 = scGear.initPos[0]
