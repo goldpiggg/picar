@@ -67,6 +67,8 @@ RPIservo.start_hold_keeper()
 GRIP_SEAT_DEG = 18
 GRIP_HOLD_DEG = 14
 GRIP_SEAT_SECONDS = 1.0
+# Arm button jog speed: degrees/second (each 0.09 s step moves speed*0.09 deg).
+ARM_JOG_SPEED = 10
 grip_closing = False
 
 init_pwm0 = scGear.initPos[0]
@@ -248,20 +250,20 @@ def robotCtrl(command_input, response):
         switch.switch(3,0)
 
     elif 'lookleft' == command_input:
-        scGear.singleServo(1, 1, 7)
+        scGear.singleServo(1, 1, ARM_JOG_SPEED)
 
     elif 'lookright' == command_input:
-        scGear.singleServo(1,-1, 7)
+        scGear.singleServo(1, -1, ARM_JOG_SPEED)
 
     elif 'LRstop' in command_input:
         scGear.stopWiggle()
 
 
     elif 'armup' == command_input:
-        scGear.singleServo(2, -1, 7)
+        scGear.singleServo(2, -1, ARM_JOG_SPEED)
 
     elif 'armdown' == command_input:
-        scGear.singleServo(2, 1, 7)
+        scGear.singleServo(2, 1, ARM_JOG_SPEED)
 
     elif 'armstop' in command_input:
         scGear.stopWiggle()
@@ -269,21 +271,21 @@ def robotCtrl(command_input, response):
 
 
     elif 'handup' == command_input:
-        scGear.singleServo(3, 1, 7)
+        scGear.singleServo(3, 1, ARM_JOG_SPEED)
 
     elif 'handdown' == command_input:
-        scGear.singleServo(3, -1, 7)
+        scGear.singleServo(3, -1, ARM_JOG_SPEED)
 
     elif 'HAstop' in command_input:
         scGear.stopWiggle()
 
     elif 'grab' == command_input:
         grip_closing = True
-        scGear.singleServo(4, -1, 7)
+        scGear.singleServo(4, -1, ARM_JOG_SPEED)
 
     elif 'loose' == command_input:
         grip_closing = False
-        scGear.singleServo(4, 1, 7)
+        scGear.singleServo(4, 1, ARM_JOG_SPEED)
 
     elif 'stop' == command_input:
         scGear.stopWiggle()
@@ -302,28 +304,28 @@ def robotCtrl_speech(command_input, response):
     if 'stop' in command_input:
         scGear.stopWiggle()
     elif 'lookleft' == command_input:
-        scGear.singleServo(1, 1, 7)
+        scGear.singleServo(1, 1, ARM_JOG_SPEED)
 
     elif 'lookright' == command_input:
-        scGear.singleServo(1,-1, 7)
+        scGear.singleServo(1, -1, ARM_JOG_SPEED)
 
     elif 'armup' == command_input:
-        scGear.singleServo(2, -1, 7)
+        scGear.singleServo(2, -1, ARM_JOG_SPEED)
 
     elif 'armdown' == command_input:
-        scGear.singleServo(2, 1, 7)
+        scGear.singleServo(2, 1, ARM_JOG_SPEED)
 
     elif 'handup' == command_input:
-        scGear.singleServo(3, 1, 7)
+        scGear.singleServo(3, 1, ARM_JOG_SPEED)
 
     elif 'handdown' == command_input:
-        scGear.singleServo(3, -1, 7)
+        scGear.singleServo(3, -1, ARM_JOG_SPEED)
 
     elif 'grab' == command_input:
-        scGear.singleServo(4, -1, 7)
+        scGear.singleServo(4, -1, ARM_JOG_SPEED)
 
     elif 'loose' == command_input:
-        scGear.singleServo(4, 1, 7)
+        scGear.singleServo(4, 1, ARM_JOG_SPEED)
         
     elif 'home' == command_input:
         scGear.moveServoInit([0])
