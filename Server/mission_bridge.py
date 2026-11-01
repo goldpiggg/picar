@@ -9,7 +9,7 @@ if str(ROOT) not in sys.path:
 from picar_mission.config import load_config
 from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
-from picar_mission.arm_sequence import ArmSequence, PoseMove, load_profile, pose_targets, save_pose as save_arm_pose
+from picar_mission.arm_sequence import MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_profile, pose_targets, save_pose as save_arm_pose
 from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
 from picar_mission.heading import GyroHeading
 from picar_mission.qr_scan import emit
@@ -71,8 +71,8 @@ class ArmAdapter:
 
     def read_angles(self):
         # RPIservo.moveWiggle stores nowPos before clamping, so holding a manual
-        # button past the end reads 181/-1 although the servo never got it.
-        return {name:min(180.,max(0.,float(self.servo.nowPos[channel])))
+        # button past the end reads 190/-1 although the servo never got it.
+        return {name:min(float(MAX_SERVO_ANGLE),max(0.,float(self.servo.nowPos[channel])))
                 for name,channel in self.channels.items()}
 
     def set_joint(self, name, angle):
