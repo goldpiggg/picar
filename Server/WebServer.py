@@ -55,7 +55,7 @@ rad = 0.5
 
 
 scGear = RPIservo.ServoCtrl()
-scGear.moveInit()
+scGear.moveInitSmooth()
 scGear.start()
 RPIservo.start_hold_keeper()
 
