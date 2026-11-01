@@ -206,6 +206,43 @@ def move_to_pose(name):
     return pose_move_status()
 
 
+def rehearse(direction):
+    """Teach mode only: run the automatic arm plan in place, without driving."""
+    global _pose_move
+    if config.auto_approach_enabled:
+        raise ValueError('auto_approach_enabled=false 수동 모드에서만 미리 실행할 수 있습니다')
+    if _servo is None:
+        raise ValueError('서보가 아직 준비되지 않았습니다')
+    if direction not in ('LEFT','RIGHT'):
+        raise ValueError('direction must be LEFT or RIGHT')
+    stop_pose_move()
+    sequence = ArmSequence(ArmAdapter(_servo),load_profile())
+    sequence.start(direction,require_calibration=False)
+    stop = Event()
+    info = dict(name=direction+' 순서',state='MOVING',error=None,step_index=0,
+                step_count=len(sequence.steps),action=None,pose=None)
+
+    def run():
+        try:
+            while not stop.is_set():
+                state = sequence.tick()
+                step = sequence.steps[min(sequence.index,len(sequence.steps)-1)]
+                info.update(step_index=sequence.index,action=step['action'],pose=step['pose'])
+                if state=='COMPLETE':
+                    info['state'] = 'DONE'
+                    return
+                time.sleep(.02)
+            sequence.cancel()  # Holds the current pose and grip; no release.
+            info['state'] = 'STOPPED'
+        except Exception as exc:
+            info.update(state='ERROR',error=str(exc))
+
+    thread = Thread(target=run,daemon=True)
+    _pose_move = dict(info=info,stop=stop,thread=thread)
+    thread.start()
+    return pose_move_status()
+
+
 def stop_pose_move():
     if _pose_move is not None and _pose_move['thread'].is_alive():
         _pose_move['stop'].set()

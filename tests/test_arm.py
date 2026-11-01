@@ -306,7 +306,7 @@ class PoseRecallTests(unittest.TestCase):
     def bridge_with_servo(self, auto):
         bridge=test_approach.OfficialConnectionTests().load_bridge()
         bridge.config=replace(bridge.config,auto_approach_enabled=auto)
-        servo=SimpleNamespace(nowPos=[90.]*8)
+        servo=SimpleNamespace(nowPos=[90.]*8,stopWiggle=lambda:None)
         servo.setPWM=lambda channel,angle:servo.nowPos.__setitem__(channel,angle)
         bridge._servo=servo
         return bridge,servo
@@ -326,6 +326,57 @@ class PoseRecallTests(unittest.TestCase):
         self.assertTrue(bridge.allow_command('armup'))
         self.assertEqual(bridge.pose_move_status()['state'],'STOPPED')
         self.assertNotEqual(servo.nowPos[1],55)
+
+
+class RehearsalTests(unittest.TestCase):
+    def bridge(self, auto=False):
+        return PoseRecallTests().bridge_with_servo(auto)
+
+    def test_rehearsal_runs_full_plan_uncalibrated_without_driving(self):
+        from unittest.mock import patch
+        bridge,servo=self.bridge()
+        ticks=[0.]
+        def clock(): ticks[0]+=.1;return ticks[0]
+        fast=lambda driver,profile:ArmSequence(driver,profile,clock=clock)
+        with patch.object(bridge,'ArmSequence',fast),patch.object(bridge.time,'sleep',lambda s:None):
+            self.assertFalse(load_profile().calibrated)
+            info=bridge.rehearse('LEFT')
+            self.assertEqual(info['step_count'],19)
+            bridge._pose_move['thread'].join(10)
+        status=bridge.pose_move_status()
+        self.assertEqual((status['state'],status['action'],status['pose']),('DONE','release','left_place'))
+        profile=load_profile()
+        self.assertEqual(servo.nowPos[1:5],[*profile.positions['left_place'].values(),profile.gripper['open']])
+        self.assertEqual(servo.nowPos[0],90.)  # Steering channel untouched.
+
+    def test_rehearsal_refused_in_auto_and_for_bad_side(self):
+        bridge,_=self.bridge(auto=True)
+        with self.assertRaises(ValueError): bridge.rehearse('RIGHT')
+        bridge,_=self.bridge()
+        with self.assertRaises(ValueError): bridge.rehearse('PICK')
+
+    def test_manual_button_stops_rehearsal_and_holds_pose(self):
+        import time
+        bridge,servo=self.bridge()
+        bridge.rehearse('RIGHT');time.sleep(.15)
+        self.assertTrue(bridge.allow_command('grab'))
+        self.assertEqual(bridge.pose_move_status()['state'],'STOPPED')
+        held=list(servo.nowPos);time.sleep(.1)
+        self.assertEqual(servo.nowPos,held)
+
+    def test_enabled_arm_is_wired_into_the_auto_mission(self):
+        from unittest.mock import patch
+        bridge=test_approach.OfficialConnectionTests().load_bridge()
+        bridge.config=replace(bridge.config,auto_approach_enabled=True,arm_enabled=True,
+                              heading_correction_enabled=False)
+        servo=SimpleNamespace(nowPos=[90.]*8,stopWiggle=lambda:None,moveAngle=lambda *a:None,
+                              setPWM=lambda *a:None)
+        move=SimpleNamespace(motorStop=lambda:None)
+        with patch.object(bridge,'load_profile',calibrated_profile),\
+             patch.object(bridge.DirectMissionController,'start',lambda self:None):
+            bridge.configure(move,servo,SimpleNamespace(read_sample=lambda:None))
+        self.assertIsInstance(bridge.controller.arm,ArmSequence)
+        self.assertTrue(bridge.controller.arm.profile.calibrated)
 
 
 class SequenceTests(unittest.TestCase):
