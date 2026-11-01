@@ -248,6 +248,14 @@ class SavePoseTests(unittest.TestCase):
         self.assertEqual(profile.gripper['closed'],74.)
         self.assertFalse(profile.calibrated)
 
+    def test_saving_keeps_the_original_file_owner(self):
+        import os
+        from unittest.mock import patch
+        st=self.path.stat();calls=[]
+        with patch.object(os,'chown',lambda p,uid,gid:calls.append((Path(p).name,uid,gid)),create=True):
+            save_pose('left_pick',dict(base=60,shoulder=90,elbow=90,gripper=90),self.path)
+        self.assertEqual(calls,[('arm_poses.json.tmp',st.st_uid,st.st_gid)])
+
     def test_unknown_name_and_out_of_limit_angles_leave_file_unchanged(self):
         before=self.path.read_text(encoding='utf-8')
         for name,angles in [('steering',dict(base=90,shoulder=90,elbow=90,gripper=90)),
