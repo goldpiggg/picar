@@ -45,8 +45,14 @@ class PoseTests(unittest.TestCase):
                 plan=load_profile().plan(direction)
                 self.assertEqual([s['pose'] for s in plan if s['action']=='grasp'],[first+'_pick',other+'_pick'])
                 self.assertEqual([s['pose'] for s in plan if s['action']=='release'],[other+'_place',first+'_place'])
-                self.assertEqual(plan[-1]['pose'],'center_clear')
-                self.assertEqual(len(plan),21)
+                self.assertEqual([(s['pose'],s['gripper']) for s in plan],[
+                    ('center_clear',None),(first+'_pick_above',None),(first+'_pick_above','open'),
+                    (first+'_pick','open'),(first+'_pick','closed'),(first+'_pick_above','closed'),
+                    ('center_carry','closed'),(other+'_place_above','closed'),(other+'_place','closed'),
+                    (other+'_place','open'),(other+'_place_above','open'),
+                    (other+'_pick_above','open'),(other+'_pick','open'),(other+'_pick','closed'),
+                    (other+'_pick_above','closed'),('center_carry','closed'),
+                    (first+'_place_above','closed'),(first+'_place','closed'),(first+'_place','open')])
 
     def test_invalid_angle_nan_and_steering_pose_are_rejected(self):
         for mutation in ['range','nan','steering']:
@@ -340,6 +346,21 @@ class SequenceTests(unittest.TestCase):
             self.assertEqual(driver.angles['gripper'],110)
             self.assertTrue(all(joint in JOINTS for joint,_ in driver.writes))
             self.assertFalse(any(step['gripper']!='closed' for step in s.steps if step['action'] in ('lift','carry_center','approach_place','lower_place')))
+            # Ends where the second object was released, gripper open.
+            self.assertEqual({j:driver.angles[j] for j in JOINTS[:3]},
+                             s.profile.positions[direction.lower()+'_place'])
+
+    def test_first_moves_keep_the_gripper_until_above_the_object(self):
+        driver=FakeArm();driver.angles['gripper']=80.
+        s=ArmSequence(driver,calibrated_profile());s.start('RIGHT',0.)
+        tick=0
+        while s.index<2:
+            tick+=1;s.tick(tick*.05)
+        self.assertFalse(any(joint=='gripper' for joint,_ in driver.writes))
+        self.assertEqual(driver.angles['base'],125)  # Arrived above the right object.
+        while s.index<3:
+            tick+=1;s.tick(tick*.05)
+        self.assertEqual(driver.angles['gripper'],110)  # Then opened there.
 
     def test_rate_limit_and_stalled_tick_do_not_jump(self):
         driver=FakeArm();s=ArmSequence(driver,calibrated_profile());s.start('LEFT',0.)

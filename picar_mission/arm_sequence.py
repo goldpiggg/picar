@@ -82,12 +82,19 @@ class ArmProfile:
         other = 'right' if first=='left' else 'left'
         steps = []
         def add(pose, grip, action):
+            # grip None leaves the gripper where the mission found it.
             steps.append(dict(action=action,pose=pose,gripper=grip,
-                angles_deg={**self.positions[pose],'gripper':self.gripper[grip]},
-                settle_seconds=self.values['grip_settle_seconds'] if action in ('grasp','release') else self.values['settle_seconds']))
-        add('center_clear','open','prepare')
-        for source,destination in ((first,other),(other,first)):
-            add(source+'_pick_above','open','approach_pick')
+                angles_deg={**self.positions[pose],'gripper':None if grip is None else self.gripper[grip]},
+                settle_seconds=self.values['grip_settle_seconds'] if action in ('open_gripper','grasp','release') else self.values['settle_seconds']))
+        # The QR side's object first, dropped on the other side; then the other
+        # side's object, dropped on the QR side. The second pick follows the
+        # first drop directly, since both are on the same side.
+        add('center_clear',None,'prepare')
+        add(first+'_pick_above',None,'approach_pick')
+        add(first+'_pick_above','open','open_gripper')
+        for n,(source,destination) in enumerate(((first,other),(other,first))):
+            if n:
+                add(source+'_pick_above','open','approach_pick')
             add(source+'_pick','open','lower_pick')
             add(source+'_pick','closed','grasp')
             add(source+'_pick_above','closed','lift')
@@ -95,8 +102,8 @@ class ArmProfile:
             add(destination+'_place_above','closed','approach_place')
             add(destination+'_place','closed','lower_place')
             add(destination+'_place','open','release')
-            add(destination+'_place_above','open','retreat')
-            add('center_clear','open','return_clear')
+            if not n:
+                add(destination+'_place_above','open','retreat')
         return steps
 
 
@@ -233,7 +240,10 @@ class ArmSequence:
             if self.motion is None:
                 # Slow down whenever an object is (or is about to be) held.
                 carrying=self.holding or step['gripper']=='closed'
-                self.motion=Motion(self.current,step['angles_deg'],self.profile.move_speed(carrying))
+                targets={**step['angles_deg']}
+                if targets['gripper'] is None:
+                    targets['gripper']=self.current['gripper']
+                self.motion=Motion(self.current,targets,self.profile.move_speed(carrying))
                 self.planned_seconds+=self.motion.duration
             # Timeouts count beyond the planned motion time, so a slow carry
             # speed cannot trip them; they still catch a stalled control loop.
@@ -254,7 +264,8 @@ class ArmSequence:
                     self.driver.hold()
                     self.state='COMPLETE'
                 else:
-                    self.holding=step['gripper']=='closed'
+                    if step['gripper'] is not None:
+                        self.holding=step['gripper']=='closed'
                     self.motion=None
                     self.step_at=now
                     self.reached_at=None
