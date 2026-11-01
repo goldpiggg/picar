@@ -16,6 +16,9 @@ table{border-collapse:collapse;width:100%}th,td{padding:4px 8px;text-align:left;
 <p id="mode"></p>
 <p id="live">현재 명령각 확인 중…</p>
 <p><button id="halt" class="danger" type="button">팔 이동 정지</button> <span id="move"></span></p>
+<p>주행 없이 이 자리에서 자동 팔 순서(19단계) 미리 실행:
+<button class="go" data-rehearse="RIGHT">RIGHT 순서 실행</button>
+<button class="go" data-rehearse="LEFT">LEFT 순서 실행</button></p>
 <p id="msg" role="status"></p>
 <div class="wrap"><table>
 <thead><tr><th>이름</th><th>의미</th><th>저장된 값</th><th></th></tr></thead>
@@ -49,9 +52,10 @@ function render(d){
     built=true;
   }
   SLOTS.forEach(([n])=>$('v-'+n).textContent=stored(d.profile,n));
-  document.querySelectorAll('[data-name],[data-move]').forEach(b=>b.disabled=!manual||!a);
+  document.querySelectorAll('[data-name],[data-move],[data-rehearse]').forEach(b=>b.disabled=!manual||!a);
   const m=d.move, label={MOVING:'이동 중',DONE:'도착',STOPPED:'정지됨',ERROR:'오류'};
-  $('move').textContent=m?`${m.name}: ${label[m.state]||m.state}`+(m.error?' — '+m.error:''):'';
+  const progress=m&&m.step_count?` (${Math.min(m.step_index+1,m.step_count)}/${m.step_count} ${m.action} ${m.pose})`:'';
+  $('move').textContent=m?`${m.name}: ${label[m.state]||m.state}${progress}`+(m.error?' — '+m.error:''):'';
 }
 async function save(name){
   try{const r=await fetch('/poses/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
@@ -67,6 +71,8 @@ async function post(url,body){
   return j;
 }
 async function move(name){try{await post('/poses/move',{name});msg('이동 시작: '+name);}catch(e){msg('이동 실패: '+e.message);}}
+document.querySelectorAll('[data-rehearse]').forEach(b=>b.onclick=async()=>{
+  try{await post('/poses/rehearse',{direction:b.dataset.rehearse});msg(b.dataset.rehearse+' 순서 미리 실행 시작 — 멈추려면 팔 이동 정지');}catch(e){msg('미리 실행 실패: '+e.message);}});
 $('halt').onclick=async()=>{try{await post('/poses/stop');msg('팔 이동 정지');}catch(e){msg('정지 실패: '+e.message+' — 기본 웹 제어의 정지 버튼이나 전원을 사용하세요.');}};
 async function refresh(){try{const r=await fetch('/poses/data',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);render(await r.json());}catch(e){$('live').textContent='서버 연결 확인 필요: '+e.message;}finally{setTimeout(refresh,700);}}
 refresh();

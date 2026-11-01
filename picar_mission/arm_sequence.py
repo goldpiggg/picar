@@ -215,8 +215,10 @@ class ArmSequence:
         self.error=None
         self.completed_transfers=0
 
-    def start(self, direction, now=None):
-        if not self.profile.calibrated:
+    def start(self, direction, now=None, require_calibration=True):
+        # Only the teach-mode rehearsal skips this: it exists to check the
+        # taught poses before calibration_confirmed is set.
+        if require_calibration and not self.profile.calibrated:
             raise RuntimeError('ARM_CALIBRATION_REQUIRED: packaged angles are provisional')
         if self.state!='IDLE':
             raise RuntimeError('Arm sequence cannot restart')

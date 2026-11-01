@@ -91,6 +91,8 @@ right_place: base __, shoulder __, elbow __
 
 ## 보정 후 활성화
 
+활성화 전에 수동 모드의 `/poses` 페이지에서 **RIGHT/LEFT 순서 실행**으로 19단계 전체를 주행 없이 그 자리에서 미리 돌려 봅니다. 자동 미션과 같은 순서·속도이며 `calibration_confirmed=false`여도 실행됩니다. **팔 이동 정지**나 기본 웹 제어의 ARM 버튼을 누르면 그 자세 그대로 멈춥니다(집게를 열지 않음).
+
 실제 값과 이동 경로를 확인한 뒤에만 `arm_poses.json`의 `calibration_confirmed=true`, `mission_config.json`의 `arm_enabled=true`, `auto_approach_enabled=true`로 바꾸고 서버를 재시작합니다. 이때 QR 인식 후 **주행과 팔 작업이 모두 자동으로 실행**됩니다. 활성화되지 않았거나 보정이 확인되지 않으면 기존처럼 `STOPPED_WAIT`에서 대기합니다.
 
 실제 팔을 움직이지 않고 계획만 출력하려면 저장소 루트에서 실행합니다.
