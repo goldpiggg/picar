@@ -6,6 +6,7 @@ a plan; it never imports motor/servo drivers or writes hardware.
 import argparse
 import json
 import math
+import os
 from pathlib import Path
 import time
 
@@ -132,6 +133,15 @@ def save_pose(name, angles, path=None):
     ArmProfile(values)
     tmp = path.with_name(path.name+'.tmp')
     tmp.write_text(json.dumps(values,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    # The server runs as root; without this the replaced file became
+    # root-owned and the user could no longer edit it.
+    original = path.stat()
+    os.chmod(tmp,original.st_mode & 0o7777)
+    if hasattr(os,'chown'):
+        try:
+            os.chown(tmp,original.st_uid,original.st_gid)
+        except PermissionError:
+            pass  # Not root: tmp is already owned by the same user.
     tmp.replace(path)
     return saved
 
