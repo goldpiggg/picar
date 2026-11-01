@@ -57,7 +57,7 @@ class PoseTests(unittest.TestCase):
     def test_invalid_angle_nan_and_steering_pose_are_rejected(self):
         for mutation in ['range','nan','steering']:
             data=copy.deepcopy(load_profile().values)
-            if mutation=='range': data['positions']['left_pick']['base']=181
+            if mutation=='range': data['positions']['left_pick']['base']=190
             if mutation=='nan': data['gripper_deg']['closed']=float('nan')
             if mutation=='steering': data['positions']['left_pick']['steering']=90
             with self.subTest(mutation=mutation),self.assertRaises(ValueError): ArmProfile(data)
@@ -75,8 +75,8 @@ class PoseTests(unittest.TestCase):
         driver.set_joint('base',125);driver.set_joint('gripper',70);driver.hold()
         self.assertEqual(calls,[(1,125),(4,70),('hold',)])
         with self.assertRaises(KeyError): driver.set_joint('steering',90)
-        servo.nowPos[4],servo.nowPos[1]=181,-1  # manufacturer wiggle overshoot
-        self.assertEqual(driver.read_angles(),dict(base=0.,shoulder=80.,elbow=100.,gripper=180.))
+        servo.nowPos[4],servo.nowPos[1]=190,-1  # manufacturer wiggle overshoot
+        self.assertEqual(driver.read_angles(),dict(base=0.,shoulder=80.,elbow=100.,gripper=189.))
 
 
 class ServoDriverTests(unittest.TestCase):
@@ -259,7 +259,7 @@ class SavePoseTests(unittest.TestCase):
     def test_unknown_name_and_out_of_limit_angles_leave_file_unchanged(self):
         before=self.path.read_text(encoding='utf-8')
         for name,angles in [('steering',dict(base=90,shoulder=90,elbow=90,gripper=90)),
-                            ('left_pick',dict(base=181,shoulder=90,elbow=90,gripper=90))]:
+                            ('left_pick',dict(base=190,shoulder=90,elbow=90,gripper=90))]:
             with self.subTest(name=name),self.assertRaises(ValueError): save_pose(name,angles,self.path)
         self.assertEqual(self.path.read_text(encoding='utf-8'),before)
 

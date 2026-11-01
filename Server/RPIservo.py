@@ -30,6 +30,13 @@ _last_angles = {}
 _pca_lock = threading.Lock()
 
 SERVO_FREQ = 50
+# MG996R servos accept 500~2500us. Keep the old 500~2400us scale (degrees per
+# microsecond) so every saved angle produces the same pulse as before; the
+# extra 100us only adds about 9 degrees past the old 180 end.
+SERVO_MIN_PULSE = 500
+SERVO_MAX_PULSE = 2500
+SERVO_RANGE = 180*(SERVO_MAX_PULSE-SERVO_MIN_PULSE)/(2400-SERVO_MIN_PULSE)
+ARM_MAX_ANGLE = 189  # arm channels 1~4; keep in sync with arm_sequence.MAX_SERVO_ANGLE
 PCA_MODE1_SLEEP = 0x10
 
 
@@ -76,7 +83,7 @@ class ServoCtrl(threading.Thread):
         self.bufferPos  = [90.0,90.0,90.0,90.0, 90.0,90.0,90.0,90.0]
         self.lastPos = [90,90,90,90, 90,90,90,90]
         self.ingGoal = [90,90,90,90, 90,90,90,90]
-        self.maxPos  = [180,180,180,180, 180,180,180,180]
+        self.maxPos  = [180]+[ARM_MAX_ANGLE]*4+[180,180,180]
         self.minPos  = [0,0,0,0, 0,0,0,0]
         self.scSpeed = [0,0,0,0, 0,0,0,0]
 
@@ -109,7 +116,7 @@ class ServoCtrl(threading.Thread):
                 pwm_servo = PCA9685(i2c, address=0x5f)
                 pwm_servo.frequency = SERVO_FREQ
             if ID not in _servo_channels:
-                _servo_channels[ID] = servo.Servo(pwm_servo.channels[ID], min_pulse=500, max_pulse=2400,actuation_range=180)
+                _servo_channels[ID] = servo.Servo(pwm_servo.channels[ID], min_pulse=SERVO_MIN_PULSE, max_pulse=SERVO_MAX_PULSE,actuation_range=SERVO_RANGE)
             _servo_channels[ID].angle = angle
             _last_angles[ID] = angle
 

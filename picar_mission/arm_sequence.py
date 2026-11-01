@@ -15,6 +15,7 @@ JOINTS = ('base','shoulder','elbow','gripper')
 DEFAULT_CARRY_SPEED = 10.
 PEAK_SPEED_RATIO = 1.875  # ease() peaks at 1.875x its average speed.
 MAX_TICK_SECONDS = .1  # A stalled loop must not jump ahead on the path.
+MAX_SERVO_ANGLE = 189  # 500~2500us at the original degree scale (RPIservo.ARM_MAX_ANGLE).
 POSES = ('center_clear','center_carry','left_pick_above','left_pick',
          'left_place_above','left_place','right_pick_above','right_pick',
          'right_place_above','right_place')
@@ -35,7 +36,7 @@ class ArmProfile:
             raise ValueError('Arm limits must contain base/shoulder/elbow/gripper only')
         for name in JOINTS:
             limits = self.limits[name]
-            if not isinstance(limits,list) or len(limits)!=2 or not all(map(number,limits)) or not 0<=limits[0]<limits[1]<=180:
+            if not isinstance(limits,list) or len(limits)!=2 or not all(map(number,limits)) or not 0<=limits[0]<limits[1]<=MAX_SERVO_ANGLE:
                 raise ValueError('Invalid limits for '+name)
         self.positions = values['positions']
         if set(self.positions)!=set(POSES):
