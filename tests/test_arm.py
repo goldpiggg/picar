@@ -144,30 +144,6 @@ class ServoDriverTests(unittest.TestCase):
         with patch.dict(sys.modules,modules): spec.loader.exec_module(module)
         return module,writes
 
-    def test_startup_eases_held_arm_up_instead_of_jumping(self):
-        from unittest.mock import patch
-        module,writes=self.load_servo_module()
-        # Previous run ended low and stretched; the chip still drives it.
-        # Channels 5-7 are off (never driven): their angle reads None.
-        held={0:90.,1:125.,2:150.,3:30.,4:110.}
-        original=module.servo.Servo.__init__
-        def init(servo,channel,**kwargs):
-            original(servo,channel,**kwargs)
-            object.__setattr__(servo,'angle',held.get(channel))
-        sleeps=[]
-        with patch.object(module.servo.Servo,'__init__',init),\
-             patch.object(module.time,'sleep',sleeps.append):
-            module.ServoCtrl().moveInitSmooth(speed=15,period=.02,stagger=.3)
-        path={ch:[w[2] for w in writes if type(w) is tuple and w[0]=='angle' and w[1]==ch] for ch in range(8)}
-        for ch in (1,2,3):
-            steps=[abs(b-a) for a,b in zip([held[ch]]+path[ch],path[ch])]
-            self.assertLessEqual(max(steps),15*.02+1e-6)  # Never a jump.
-            self.assertEqual(path[ch][-1],90)
-        self.assertLess(abs(path[2][0]-150.),.01)  # Soft start from where it was.
-        # Off channels start one at a time, each followed by a pause.
-        self.assertEqual(sleeps.count(.3),3)
-        self.assertEqual([path[ch][0] for ch in (5,6,7)],[90,90,90])
-
     def test_pwm_chip_reset_by_power_dip_restores_held_angles(self):
         module,writes=self.load_servo_module()
         self.assertFalse(module.restore_if_reset())  # Nothing set up yet.

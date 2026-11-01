@@ -33,18 +33,6 @@ SERVO_FREQ = 50
 PCA_MODE1_SLEEP = 0x10
 
 
-def _channel(ID):
-    """Servo on channel ID, setting the PCA9685 up once. Call under _pca_lock."""
-    global i2c,pwm_servo
-    if pwm_servo is None:
-        i2c = busio.I2C(SCL, SDA)
-        pwm_servo = PCA9685(i2c, address=0x5f)
-        pwm_servo.frequency = SERVO_FREQ
-    if ID not in _servo_channels:
-        _servo_channels[ID] = servo.Servo(pwm_servo.channels[ID], min_pulse=500, max_pulse=2400,actuation_range=180)
-    return _servo_channels[ID]
-
-
 def restore_if_reset():
     """Re-arm the PCA9685 if a power dip reset it; True when it was restored.
 
@@ -114,38 +102,16 @@ class ServoCtrl(threading.Thread):
         # Writing PCA9685.frequency sleeps the chip, cutting PWM on every
         # channel for a few ms. Doing that per command let loaded arm joints
         # sag, so the chip is set up once and only the channel is written here.
+        global i2c,pwm_servo
         with _pca_lock:
-            _channel(ID).angle = angle
+            if pwm_servo is None:
+                i2c = busio.I2C(SCL, SDA)
+                pwm_servo = PCA9685(i2c, address=0x5f)
+                pwm_servo.frequency = SERVO_FREQ
+            if ID not in _servo_channels:
+                _servo_channels[ID] = servo.Servo(pwm_servo.channels[ID], min_pulse=500, max_pulse=2400,actuation_range=180)
+            _servo_channels[ID].angle = angle
             _last_angles[ID] = angle
-
-    def driven_angle(self, ID):
-        """Angle the PCA9685 still drives on ID from before this start (the chip
-        keeps its outputs across a server restart), or None when it is off."""
-        with _pca_lock:
-            angle = _channel(ID).angle
-        return None if angle is None else float(angle)
-
-    def moveInitSmooth(self, speed=15, period=0.02, stagger=0.3):
-        """moveInit without the jolt. Jumping every servo at once from the low,
-        stretched pose an arm run ends in stalled the loaded shoulder/elbow
-        (and sagged the supply), so the arm turned but never lifted.
-        Channels still holding a pose ease to their initial angle together;
-        channels that are off (fresh power-up) start one at a time."""
-        start = {i:self.driven_angle(i) for i in range(servo_num)}
-        moving = {i:a for i,a in start.items() if a is not None and abs(a-self.initPos[i]) > .5}
-        span = max([abs(self.initPos[i]-a) for i,a in moving.items()]+[0.])
-        steps = int(1.875*span/speed/period)  # 1.875: peak/average speed of the ease.
-        for k in range(1, steps+1):
-            x = k/steps
-            s = x*x*x*(10+x*(6*x-15))
-            for i,a in moving.items():
-                self.set_angle(i, a+(self.initPos[i]-a)*s)
-            time.sleep(period)
-        for i in range(servo_num):
-            if start[i] is None:
-                self.set_angle(i, self.initPos[i])
-                time.sleep(stagger)
-        self.moveInit()
 
     def pause(self):
         self.__flag.clear()
