@@ -5,7 +5,7 @@
   const poses = [['approach','접근 자세'], ['pick','집기 자세'], ['place','놓기 자세']];
   const common = [['gripper_open','집게 열기'], ['gripper_closed','집게 닫기'], ['center_clear','중앙 대기'], ['center_carry','중앙 운반']];
   const joints = [['base','회전'], ['shoulder','어깨'], ['elbow','팔꿈치'], ['gripper','집게']];
-  let latest = null, connected = false, busy = false, pending = null, dialogAction = null;
+  let latest = null, connected = false, busy = false, pending = null, dialogAction = null, actionVersion = 0;
   const previewAngles = Object.fromEntries(joints.map(([name]) => [name,90]));
 
   function row(position, pose, label) {
@@ -122,14 +122,17 @@
   }
   async function act(kind, position, pose) {
     if (busy || !connected) return;
+    const version = actionVersion;
     busy = true; buttons();
     try {
       await flushPreview();
+      if (version!==actionVersion) return;
       await request('/positions/'+kind,'POST',{position,pose,expected_revision:latest.control_revision,session_id:latest.session_id});
       await refresh();
+      if (version!==actionVersion) return;
       const label = (position==='COMMON'?common:poses).find(([name]) => name===pose)?.[1] || pose;
       feedback(`${latest.preview?'가상 ':''}${position==='COMMON'?'공통':position} · ${label} ${kind==='save'?'저장 완료':'이동 확인 시작'}`);
-    } catch (error) { feedback(error.message,true); }
+    } catch (error) { if (version===actionVersion) feedback(error.message,true); }
     finally { busy = false; buttons(); }
   }
   function confirm(kind, position, pose) {
@@ -160,6 +163,7 @@
     });
   });
   $('arm-stop').addEventListener('click',async() => {
+    actionVersion += 1;
     // Stop may run during another request; cancel an open recall dialog too.
     if ($('confirm-dialog').open) { pending = null; $('confirm-dialog').close('cancel'); }
     try { await request('/positions/stop','POST',{}); await refresh(); feedback(latest.preview?'가상 이동을 정지했습니다.':'팔 이동을 정지했습니다. 현재 자세와 집게를 유지합니다.'); }
