@@ -28,7 +28,8 @@ class ConfigTests(unittest.TestCase):
                         '{"qr_enabled":"yes"}', '{"camera_backend":"other"}',
                         '{"target_distance_cm":NaN}',
                         '{"arm_enabled":true,"arm_start_delay_seconds":-1}',
-                        '{"arm_jog_speed":0}', '{"arm_jog_speed":31}', '{"arm_jog_speed":10.5}']:
+                        '{"arm_jog_speed":0}', '{"arm_jog_speed":31}', '{"arm_jog_speed":10.5}',
+                        '{"layout_frames":0}', '{"layout_min_gap":0}', '{"layout_timeout_seconds":0}']:
             with self.subTest(content=content), tempfile.TemporaryDirectory() as d:
                 p = Path(d) / 'config.json'
                 p.write_text(content)
@@ -92,6 +93,29 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(state['target_distance_cm'], 30.)
         runtime.process_frame('LEFT', .5, 4, FakeReader())
         self.assertEqual(runtime.snapshot()['first_direction'], 'RIGHT')
+
+    def test_layout_is_read_only_after_the_controller_asks(self):
+        boxes = [{'text': label, 'label': label, 'center_normalized': [x, y]}
+                 for label, x, y in [('PICK', .2, .7), ('PLACE', .2, .3), ('PICK', .8, .3), ('PLACE', .8, .7)]]
+        class BoxReader:
+            def detect(self, frame): return [{'text': 'LEFT'}] if frame == 'LEFT' else boxes
+        runtime = MissionRuntime(MissionConfig(layout_frames=3), clock=lambda: 1.)
+        self.assertFalse(runtime.request_layout())  # No direction yet.
+        runtime.process_frame('boxes', 1., 1, BoxReader())
+        self.assertEqual(runtime.snapshot()['layout_preview'], 'LEFT_BOTTOM')
+        self.assertIsNone(runtime.snapshot()['layout'])
+        runtime.process_frame('LEFT', 1., 2, BoxReader())
+        self.assertEqual(runtime.snapshot()['state'], 'DIRECTION_CONFIRMED')
+        runtime.process_frame('boxes', 1., 3, BoxReader())  # Still driving: ignored.
+        self.assertIsNone(runtime.snapshot()['layout'])
+        self.assertTrue(runtime.request_layout())
+        self.assertEqual(runtime.snapshot()['state'], 'WAIT_LAYOUT')
+        for i in range(4, 7): result = runtime.process_frame('boxes', 1., i, BoxReader())
+        self.assertEqual(result, 'LEFT_BOTTOM')
+        state = runtime.snapshot()
+        self.assertEqual((state['state'], state['layout'], state['first_direction']),
+                         ('LAYOUT_CONFIRMED', 'LEFT_BOTTOM', 'LEFT'))
+        self.assertFalse(runtime.request_layout())
 
     def test_stale_frames_and_duplicate_sequence_do_not_confirm(self):
         runtime = MissionRuntime(MissionConfig(required_frames=3,hold_seconds=.35),clock=lambda: 10.)

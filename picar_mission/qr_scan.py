@@ -73,6 +73,65 @@ class StartGate:
         return None
 
 
+# (higher code, lower code) pairs that hold in the LEFT_TOP layout; LEFT_BOTTOM
+# reverses every one. PICK marks an object, PLACE an empty box. Pairs in the
+# same row (left PICK vs right PLACE) carry no information and are not used.
+LEFT_TOP_PAIRS = ((('left', 'PICK'), ('left', 'PLACE')),
+                  (('right', 'PLACE'), ('right', 'PICK')),
+                  (('left', 'PICK'), ('right', 'PICK')),
+                  (('right', 'PLACE'), ('left', 'PLACE')))
+
+
+def classify_layout(detections, min_gap=0.05):
+    """LEFT_TOP / LEFT_BOTTOM from PICK/PLACE codes in one frame, else None.
+
+    A side is the image half a code's center falls in. Every visible pair
+    must agree and differ in height by at least min_gap (fraction of image
+    height), so one code hidden under a sponge still leaves a decision, while
+    a duplicate code, a level pair or a contradiction gives none.
+    """
+    heights = {}
+    for item in detections:
+        if item.get('label') not in ('PICK', 'PLACE'):
+            continue
+        x, y = item['center_normalized']
+        key = ('left' if x < .5 else 'right', item['label'])
+        if key in heights:
+            return None
+        heights[key] = y
+    votes = set()
+    for upper, lower in LEFT_TOP_PAIRS:
+        if upper in heights and lower in heights:
+            gap = heights[lower] - heights[upper]
+            if abs(gap) < min_gap:
+                return None
+            votes.add('LEFT_TOP' if gap > 0 else 'LEFT_BOTTOM')
+    return votes.pop() if len(votes) == 1 else None
+
+
+@dataclass
+class LayoutGate:
+    """Latch a layout after required_frames consecutive frames agree."""
+    required_frames: int = 3
+    min_gap: float = 0.05
+    candidate: str = None
+    count: int = 0
+    confirmed: str = None
+
+    def update(self, detections):
+        if self.confirmed is not None:
+            return None
+        layout = classify_layout(detections, self.min_gap)
+        if layout is None or layout != self.candidate:
+            self.candidate, self.count = layout, int(layout is not None)
+        else:
+            self.count += 1
+        if layout is not None and self.count >= self.required_frames:
+            self.confirmed = layout
+            return layout
+        return None
+
+
 class QRReader:
     def __init__(self, cv2):
         self.cv2 = cv2

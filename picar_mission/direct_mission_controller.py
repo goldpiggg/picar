@@ -68,7 +68,7 @@ class DirectMissionController(MissionController):
         emit('drive_command',action='stop',pwm=0,distance_cm=round(distance,3))
         if self.cfg.arm_enabled and self.arm is not None and self.arm.profile.calibrated:
             self.data.update(automatic_motion_enabled=True,arm_blocked_reason=None,
-                             pending_stages=['arm_transfer'])
+                             pending_stages=['box_layout','arm_transfer'])
             self._state('ARM_WAIT',now)
         else:
             self.data.update(automatic_motion_enabled=False,
@@ -82,9 +82,9 @@ class DirectMissionController(MissionController):
             raise RuntimeError('ARM_REQUIRES_STOPPED_DRIVE')
         if self.data['state']=='ARM_WAIT':
             if now-self.stop_at >= self.cfg.arm_start_delay_seconds:
-                self.arm.start(self.data['first_direction'],now)
-                self.data['arm_motion_enabled'] = True
-                self._state('ARM_TRANSFER',now)
+                self._begin_layout(now)
+        elif self.data['state']=='LAYOUT_WAIT':
+            self._layout_step(now)
         elif self.data['state']=='ARM_TRANSFER':
             if self.arm.tick(now)=='COMPLETE':
                 self._stop()

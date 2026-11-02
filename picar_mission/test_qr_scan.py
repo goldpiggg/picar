@@ -5,7 +5,59 @@ import unittest
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from qr_scan import StartGate, QRReader, normalize
+from qr_scan import LayoutGate, StartGate, QRReader, classify_layout, normalize
+
+
+def code(label, x, y):
+    return {'text': label, 'label': label, 'center_normalized': [x, y]}
+
+
+# LEFT_TOP: objects (PICK) at left-top and right-bottom, empty boxes (PLACE) elsewhere.
+LEFT_TOP = [code('PICK', .2, .3), code('PLACE', .2, .7), code('PLACE', .8, .3), code('PICK', .8, .7)]
+LEFT_BOTTOM = [code('PLACE', .2, .3), code('PICK', .2, .7), code('PICK', .8, .3), code('PLACE', .8, .7)]
+
+
+class LayoutTests(unittest.TestCase):
+    def test_both_diagonals(self):
+        self.assertEqual(classify_layout(LEFT_TOP), 'LEFT_TOP')
+        self.assertEqual(classify_layout(LEFT_BOTTOM), 'LEFT_BOTTOM')
+
+    def test_any_hidden_code_still_decides(self):
+        for layout, items in [('LEFT_TOP', LEFT_TOP), ('LEFT_BOTTOM', LEFT_BOTTOM)]:
+            for hidden in range(4):
+                with self.subTest(layout=layout, hidden=hidden):
+                    self.assertEqual(classify_layout(items[:hidden]+items[hidden+1:]), layout)
+
+    def test_only_place_codes_decide(self):
+        # Sponges may cover both PICK codes; the empty boxes stay visible.
+        self.assertEqual(classify_layout([x for x in LEFT_TOP if x['label'] == 'PLACE']), 'LEFT_TOP')
+
+    def test_unclear_frames_give_no_layout(self):
+        cases = {
+            'single code': [code('PICK', .2, .3)],
+            'same row only': [code('PICK', .2, .3), code('PLACE', .8, .3)],
+            'level pair': [code('PICK', .2, .50), code('PLACE', .2, .53)],
+            'contradiction': [code('PICK', .2, .3), code('PLACE', .2, .7), code('PICK', .8, .2)],
+            'duplicate': LEFT_TOP+[code('PICK', .3, .4)],
+            'start codes only': [code('LEFT', .2, .3), code('RIGHT', .8, .7)],
+        }
+        for name, items in cases.items():
+            with self.subTest(name):
+                self.assertIsNone(classify_layout(items))
+
+    def test_start_sign_does_not_disturb_layout(self):
+        self.assertEqual(classify_layout(LEFT_TOP+[code('LEFT', .5, .1)]), 'LEFT_TOP')
+
+    def test_gate_needs_consecutive_agreeing_frames_then_latches(self):
+        g = LayoutGate(required_frames=3)
+        self.assertIsNone(g.update(LEFT_TOP))
+        self.assertIsNone(g.update([]))  # An unclear frame restarts the count.
+        self.assertIsNone(g.update(LEFT_TOP))
+        self.assertIsNone(g.update(LEFT_BOTTOM))  # So does a different layout.
+        self.assertIsNone(g.update(LEFT_BOTTOM))
+        self.assertEqual(g.update(LEFT_BOTTOM), 'LEFT_BOTTOM')
+        self.assertIsNone(g.update(LEFT_TOP))
+        self.assertEqual(g.confirmed, 'LEFT_BOTTOM')
 
 
 class GateTests(unittest.TestCase):
@@ -103,6 +155,23 @@ class AttachedQRTests(unittest.TestCase):
         self.assertEqual({x['label'] for x in items}, {'LEFT', 'RIGHT'})
         g = StartGate()
         for t in [0, .2, .4]: self.assertIsNone(g.update([x['text'] for x in items], t))
+
+    def test_four_boxes_layout_from_a_real_decode(self):
+        import numpy as np
+        encoder = self.cv2.QRCodeEncoder.create()
+        def tile(text):
+            return self.cv2.cvtColor(self.cv2.resize(encoder.encode(text), (150, 150),
+                                     interpolation=self.cv2.INTER_NEAREST), self.cv2.COLOR_GRAY2BGR)
+        for layout, labels in [('LEFT_TOP', ('PICK', 'PLACE', 'PLACE', 'PICK')),
+                               ('LEFT_BOTTOM', ('PLACE', 'PICK', 'PICK', 'PLACE'))]:
+            with self.subTest(layout=layout):
+                image = np.full((480, 640, 3), 255, dtype=np.uint8)
+                # left-top, left-bottom, right-top, right-bottom
+                for label, (y, x) in zip(labels, [(40, 60), (290, 60), (40, 430), (290, 430)]):
+                    image[y:y+150, x:x+150] = tile(label)
+                items = self.reader.detect(image)
+                self.assertEqual(sorted(x['label'] for x in items), ['PICK', 'PICK', 'PLACE', 'PLACE'])
+                self.assertEqual(classify_layout(items), layout)
 
 
 if __name__ == '__main__': unittest.main()
