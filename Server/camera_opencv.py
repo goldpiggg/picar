@@ -399,6 +399,8 @@ class CVThread(threading.Thread):
                 pass
 
 class Camera(BaseCamera):
+    AUTO_RECONNECT = True
+    cv_worker = None
     video_source = 0
     modeSelect = 'none'
 
@@ -497,10 +499,14 @@ class Camera(BaseCamera):
         global ImgIsNone,hflip,vflip
         usb = None
         picam2 = None
-        cvt = CVThread()
-        cvt.daemon = True
-        cvt.start()
+        cvt = Camera.cv_worker
+        if cvt is None or not cvt.is_alive():
+            cvt = CVThread()
+            cvt.daemon = True
+            cvt.start()
+            Camera.cv_worker = cvt
         try:
+            mission_bridge.camera_capture_started()
             cfg = mission_bridge.config
             if cfg.camera_backend == 'usb':
                 usb = cv2.VideoCapture(cfg.camera_source)
@@ -520,11 +526,17 @@ class Camera(BaseCamera):
                 preview_config.buffer_count = 4
                 preview_config.queue = True
                 picam2.start()
+            failed_reads = 0
             while True:
                 if usb is not None:
                     ok, img = usb.read()
                     if not ok or img is None:
-                        raise RuntimeError('USB camera frame read failed')
+                        failed_reads += 1
+                        if failed_reads >= 3:
+                            raise RuntimeError('USB camera frame read failed')
+                        time.sleep(.05)
+                        continue
+                    failed_reads = 0
                     if hflip or vflip:
                         img = cv2.flip(img, -1 if hflip and vflip else (1 if hflip else 0))
                 else:
@@ -544,9 +556,10 @@ class Camera(BaseCamera):
                 if ok:
                     yield encoded.tobytes()
         except Exception as exc:
-            mission_bridge.runtime.fail(str(exc))
+            mission_bridge.camera_failed(str(exc))
             raise
         finally:
+            cvt.pause()
             if usb is not None:
                 usb.release()
             if picam2 is not None:

@@ -33,6 +33,8 @@ _move = None
 _mission_started = False
 _mission_started_at = None
 _camera_seen_at = None
+_camera_error = None
+_camera_generation = 0
 _attempt = 0
 _control_revision = 0
 _position_teaching = False
@@ -245,6 +247,8 @@ def _dashboard_status(result):
         remaining_cm=0. if result.get('target_stop_latched') else None if distance is None else round(max(0.,distance-config.target_distance_cm),1),
         target_distance_cm=config.target_distance_cm,
         camera_online=camera_online,
+        camera_generation=_camera_generation,
+        camera_error=_camera_error,
         arm_enabled=config.arm_enabled,
         control_revision=_control_revision,
         session_id=SESSION_ID,
@@ -538,10 +542,27 @@ def shutdown():
     runtime.stop()
 
 
+def camera_capture_started():
+    global _camera_seen_at, _camera_error, _camera_generation
+    with _lock:
+        _camera_generation += 1
+        _camera_seen_at = None
+        _camera_error = None
+
+
+def camera_failed(message):
+    global _camera_seen_at, _camera_error
+    with _lock:
+        _camera_seen_at = None
+        _camera_error = message
+        runtime.fail(message)
+
+
 def submit_frame(frame):
-    global _camera_seen_at
+    global _camera_seen_at, _camera_error
     with _lock:
         _camera_seen_at = time.monotonic()
+        _camera_error = None
         if not _position_teaching and (not config.web_start_required or _mission_started):
             runtime.submit_frame(frame)
     recorder.submit_frame(frame)

@@ -18,7 +18,7 @@ from picar_mission.battery_routes import register_battery_routes
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
 register_battery_routes(app, battery_alarm, str(mission_bridge.ROOT / 'picar_mission'))
-camera = Camera()
+camera = Camera(wait_for_first_frame=False)
 
 def gen(camera):
     while True:

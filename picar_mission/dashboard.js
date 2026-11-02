@@ -24,6 +24,7 @@
   let latest = null, connected = false, busy = false, stopping = false, lastAttempt = null, lastSession = null;
   let startDistance = null, elapsed = 0, timerAt = performance.now(), timerRunning = false;
   let cameraRetryAt = 0, cameraLoaded = false, cameraFailed = false;
+  let cameraGeneration = null, cameraWasOnline = false;
 
   function feedback(message, error = false) {
     $('action-feedback').textContent = message;
@@ -77,13 +78,20 @@
     $('stop').disabled = stopping || (!latest && !connected);
   }
   function renderCamera(online) {
-    const healthy = online && !cameraFailed;
+    const generation = latest?.dashboard?.camera_generation;
+    if (typeof generation==='number') {
+      if (cameraGeneration!==null && generation!==cameraGeneration) { cameraLoaded=false; cameraFailed=true; }
+      cameraGeneration=generation;
+    }
+    if (!online && cameraWasOnline) cameraLoaded=false;
+    cameraWasOnline=online;
+    const healthy = online && cameraLoaded && !cameraFailed;
     $('camera-badge').className = 'live-badge'+(healthy?' online':'');
     $('camera-badge').lastChild.textContent = healthy?' LIVE':' 영상 대기';
     $('camera-dot').className = 'dot '+(healthy?'online':'muted');
-    $('camera-note').textContent = healthy?'실시간 영상 수신 중':'카메라 연결 확인 필요';
+    $('camera-note').textContent = healthy?'실시간 영상 수신 중':'카메라 영상 자동 재연결 중';
     $('camera-placeholder').hidden = healthy && cameraLoaded;
-    if (online && (!cameraLoaded || cameraFailed) && Date.now()-cameraRetryAt > 5000) connectCamera();
+    if (connected && (!cameraLoaded || cameraFailed) && Date.now()-cameraRetryAt > 5000) connectCamera();
   }
   function connectCamera() {
     cameraRetryAt = Date.now();
@@ -134,6 +142,7 @@
     const info = data.dashboard, state = info.state;
     const direction = ['LEFT','RIGHT'].includes(data.first_direction)?data.first_direction:null;
     if (lastAttempt !== info.attempt || lastSession !== info.session_id) {
+      if (lastSession!==null && lastSession!==info.session_id) { cameraLoaded=false; cameraFailed=true; cameraGeneration=null; }
       startDistance = null; lastAttempt = info.attempt; lastSession = info.session_id;
     }
     const copy = COPY[state] || ['진행 중',state,'현재 미션 상태를 확인하고 있습니다.'];

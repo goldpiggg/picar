@@ -155,6 +155,25 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(self.bridge.status()['dashboard']['state'],'DISABLED')
         with self.assertRaisesRegex(ValueError,'수동'): self.start()
 
+    def test_camera_recovers_health_without_automatically_starting_mission(self):
+        self.bridge.camera_capture_started()
+        self.bridge.camera_failed('USB camera frame read failed')
+        status = self.bridge.status()['dashboard']
+        self.assertFalse(status['camera_online'])
+        self.assertFalse(status['can_start'])
+        self.assertEqual(status['camera_error'],'USB camera frame read failed')
+        with self.assertRaisesRegex(ValueError,'카메라'): self.start()
+        self.bridge.camera_capture_started()
+        self.bridge.submit_frame(object())  # Before start: no QR queue or motion.
+        status = self.bridge.status()['dashboard']
+        self.assertEqual(status['camera_generation'],2)
+        self.assertTrue(status['camera_online'])
+        self.assertIsNone(status['camera_error'])
+        self.assertTrue(status['can_start'])
+        self.assertIsNone(self.bridge.controller.worker)
+        self.assertIsNone(self.bridge.runtime.worker)
+        self.assertFalse(any(isinstance(c,tuple) and c[0]=='drive' for c in self.commands))
+
     def test_entire_stop_includes_manual_pose_worker(self):
         stopped = threading.Event()
         thread = threading.Thread(target=lambda:stopped.wait(3),daemon=True)
@@ -181,7 +200,7 @@ class LifecycleTests(unittest.TestCase):
 class HttpTests(unittest.TestCase):
     def setUp(self):
         self.bridge = load_bridge()
-        camera = SimpleNamespace(Camera=lambda:object())
+        camera = SimpleNamespace(Camera=lambda **kwargs:object())
         spec = importlib.util.spec_from_file_location('dashboard_app',ROOT/'Server/app.py')
         module = importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules,{'mission_bridge':self.bridge,'camera_opencv':camera}):
