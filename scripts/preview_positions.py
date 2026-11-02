@@ -6,6 +6,7 @@ import sys
 from threading import RLock
 import time
 import uuid
+import math
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -26,10 +27,11 @@ class PreviewPositions:
         self.lock = RLock()
         self.revision = 0
         self.session = uuid.uuid4().hex
+        self.teaching = True
 
     def tick(self):
         if self.move is not None and self.move['state'] == 'MOVING':
-            progress = min(1., (time.monotonic()-self.move['started_at'])/1.8)
+            progress = min(1., (time.monotonic()-self.move['started_at'])/self.move.get('duration',1.8))
             for joint, target in self.move['targets'].items():
                 start = self.move['start_angles'][joint]
                 self.angles[joint] = round(start+(target-start)*ease(progress), 2)
@@ -39,10 +41,12 @@ class PreviewPositions:
     def position_data(self):
         with self.lock:
             self.tick()
-            return dict(profile=self.store.read(), manual=True, angles=dict(self.angles),
+            return dict(profile=self.store.read(), manual=self.teaching, angles=dict(self.angles),
                 move=None if self.move is None else {key: value for key, value in self.move.items()
                     if key not in ('started_at', 'start_angles')},
-                preview=True, legacy_available=False, control_revision=self.revision, session_id=self.session)
+                preview=True, legacy_available=False, control_revision=self.revision, session_id=self.session,
+                teaching_active=self.teaching, can_switch_teaching=True,
+                joint_limits=self.store.limits, supports_joint_control=True)
 
     def set_angles(self, angles):
         with self.lock:
@@ -54,6 +58,7 @@ class PreviewPositions:
 
     def save_position(self, position, pose):
         with self.lock:
+            if not self.teaching: raise ValueError('팔 수동 조절 시작을 누르세요')
             self.tick()
             if self.move is not None and self.move['state'] == 'MOVING':
                 raise ValueError('가상 이동이 끝난 뒤 저장하세요')
@@ -61,6 +66,7 @@ class PreviewPositions:
 
     def move_to_position(self, position, pose, expected_revision=None, session_id=None):
         with self.lock:
+            if not self.teaching: raise ValueError('팔 수동 조절 시작을 누르세요')
             if type(expected_revision) is not int or expected_revision != self.revision or session_id != self.session:
                 raise ValueError('제어 상태가 바뀌었습니다. 다시 확인하세요')
             self.tick()
@@ -69,6 +75,30 @@ class PreviewPositions:
             self.move = dict(name=position+' / '+pose, state='MOVING', targets=targets,
                 started_at=time.monotonic(), start_angles=dict(self.angles), error=None)
             return self.position_data()['move']
+
+    def set_position_teaching(self, enabled, expected_revision=None, session_id=None):
+        with self.lock:
+            if type(enabled) is not bool or type(expected_revision) is not int or expected_revision != self.revision or session_id != self.session:
+                raise ValueError('현재 제어 상태와 모드를 확인하세요')
+            self.stop_position_move()
+            self.teaching = enabled
+            return self.position_data()
+
+    def set_joint_angle(self, joint, angle, expected_revision=None, session_id=None):
+        with self.lock:
+            if not self.teaching: raise ValueError('팔 수동 조절 시작을 누르세요')
+            if type(expected_revision) is not int or expected_revision != self.revision or session_id != self.session:
+                raise ValueError('제어 상태가 바뀌었습니다')
+            if joint not in JOINTS or type(angle) not in (int,float) or not math.isfinite(angle):
+                raise ValueError('관절과 각도를 확인하세요')
+            if not self.store.limits[joint][0] <= angle <= self.store.limits[joint][1]:
+                raise ValueError('허용 각도를 확인하세요')
+            self.tick()
+            duration = max(.06,1.875*abs(self.angles[joint]-angle)/10.)
+            self.revision += 1
+            self.move = dict(name='JOINT / '+joint,state='MOVING',targets={joint:float(angle)},
+                started_at=time.monotonic(),start_angles=dict(self.angles),duration=duration,error=None)
+            return self.position_data()
 
     def stop_position_move(self):
         with self.lock:

@@ -35,6 +35,7 @@ _mission_started_at = None
 _camera_seen_at = None
 _attempt = 0
 _control_revision = 0
+_position_teaching = False
 SESSION_ID = uuid.uuid4().hex
 
 
@@ -172,6 +173,8 @@ def start_mission(expected_revision=None):
             raise ValueError('서버가 아직 준비되지 않았습니다')
         if not config.auto_approach_enabled:
             raise ValueError('수동 모드입니다. 자동 미션 설정을 켜고 서버를 재시작하세요')
+        if _position_teaching:
+            raise ValueError('팔 수동 조절을 종료한 뒤 미션을 시작하세요')
         if _mission_started and controller.snapshot()['state'] not in TERMINAL:
             return status()  # Double click or retry must not start a second run.
         if _camera_seen_at is None or time.monotonic()-_camera_seen_at > config.max_frame_age_seconds:
@@ -203,7 +206,7 @@ def status():
         result = _status()
         result['dashboard'] = _dashboard_status(result)
         result['state'] = result['dashboard']['state']
-        if result['state']=='READY':
+        if result['state'] in ('READY','ARM_TEACHING'):
             result['automatic_motion_enabled'] = False
         return result
 
@@ -216,6 +219,8 @@ def _dashboard_status(result):
     ready = controller is not None
     if ready and config.auto_approach_enabled and not _mission_started and not _cancelled:
         state = 'READY'
+    if _position_teaching:
+        state = 'ARM_TEACHING'
     finished = _mission_started and result.get('state') in TERMINAL
     end = max(_mission_started_at or now,controller.state_at) if finished else now
     elapsed = None if _mission_started_at is None else round(max(0.,end-_mission_started_at),2)
@@ -235,7 +240,7 @@ def _dashboard_status(result):
             pass
     camera_online = _camera_seen_at is not None and now-_camera_seen_at <= config.max_frame_age_seconds
     return dict(state=state,attempt=_attempt,started=_mission_started,finished=finished,
-        can_start=ready and camera_online and config.auto_approach_enabled and (not _mission_started or finished),
+        can_start=ready and camera_online and config.auto_approach_enabled and not _position_teaching and (not _mission_started or finished),
         elapsed_seconds=elapsed,distance_cm=distance,distance_age_seconds=age,distance_source=source,
         remaining_cm=0. if result.get('target_stop_latched') else None if distance is None else round(max(0.,distance-config.target_distance_cm),1),
         target_distance_cm=config.target_distance_cm,
@@ -289,12 +294,14 @@ def move_to_pose(name):
     return _move_arm_targets(name, targets, profile)
 
 
-def _move_arm_targets(name, targets, profile):
+def _move_arm_targets(name, targets, profile, speed=None):
     global _pose_move
     stop_pose_move()
+    if _pose_move is not None and _pose_move['thread'].is_alive():
+        raise RuntimeError('이전 팔 이동이 멈추지 않았습니다')
     driver = ArmAdapter(_servo)
     driver.hold()
-    speed = profile.move_speed(profile.holding(driver.read_angles()['gripper']))
+    speed = profile.move_speed(profile.holding(driver.read_angles()['gripper'])) if speed is None else speed
     move = PoseMove(driver,targets,speed)
     stop = Event()
     info = dict(name=name,state='MOVING',targets=targets,error=None,speed_deg_per_second=speed,
@@ -323,14 +330,16 @@ def _position_store():
 
 def position_data():
     with _lock:
-        return dict(profile=_position_store().read(), manual=not config.auto_approach_enabled,
+        return dict(profile=_position_store().read(), manual=_position_teaching or not config.auto_approach_enabled,
             angles=_read_arm_angles(), move=pose_move_status(), preview=False,
-            legacy_available=True, control_revision=_control_revision, session_id=SESSION_ID)
+            legacy_available=True, control_revision=_control_revision, session_id=SESSION_ID,
+            teaching_active=_position_teaching, can_switch_teaching=config.auto_approach_enabled and controller is not None,
+            joint_limits=load_profile().limits, supports_joint_control=True)
 
 
 def _require_position_teaching():
-    if config.auto_approach_enabled:
-        raise ValueError('수동 저장 모드가 필요합니다. auto_approach_enabled=false, arm_enabled=false로 설정하고 서버를 재시작하세요')
+    if config.auto_approach_enabled and not _position_teaching:
+        raise ValueError('수동 저장 모드가 필요합니다. 팔 수동 조절 시작을 누르세요')
     if _servo is None:
         raise ValueError('서보가 아직 준비되지 않았습니다')
 
@@ -362,6 +371,69 @@ def stop_position_move():
         if _servo is not None:
             ArmAdapter(_servo).hold()
         return pose_move_status()
+
+
+def _check_position_revision(expected_revision, session_id):
+    if type(expected_revision) is not int or expected_revision != _control_revision or session_id != SESSION_ID:
+        raise ValueError('제어 상태가 바뀌었습니다. 현재 상태를 확인하고 다시 조절하세요')
+
+
+def set_position_teaching(enabled, expected_revision=None, session_id=None):
+    """Temporarily reserve control for the arm page without changing settings."""
+    global _position_teaching, _control_revision, _mission_started, _mission_started_at, _cancelled, runtime, controller
+    with _lock:
+        _check_position_revision(expected_revision, session_id)
+        if type(enabled) is not bool:
+            raise ValueError('팔 수동 조절 모드를 선택하세요')
+        if controller is None or _servo is None:
+            raise ValueError('로봇이 아직 준비되지 않았습니다')
+        _control_revision += 1
+        controller.stop()
+        if controller.worker is not None and controller.worker.is_alive():
+            raise RuntimeError('이전 주행 작업이 멈추지 않았습니다')
+        runtime.stop()
+        if runtime.worker is not None and runtime.worker.is_alive():
+            raise RuntimeError('이전 QR 작업이 멈추지 않았습니다')
+        stop_pose_move()
+        if _pose_move is not None and _pose_move['thread'].is_alive():
+            raise RuntimeError('이전 팔 이동이 멈추지 않았습니다')
+        _move.motorStop()
+        ArmAdapter(_servo).hold()
+        if not enabled:
+            # Prepare only: never resume driving on leaving the teaching page.
+            replacement_runtime = MissionRuntime(config)
+            previous_runtime = runtime
+            runtime = replacement_runtime
+            try:
+                replacement = _make_controller()
+            except Exception:
+                runtime = previous_runtime
+                raise
+            controller = replacement
+        _position_teaching = enabled
+        _mission_started = False
+        _mission_started_at = None
+        _cancelled = False
+        return position_data()
+
+
+def set_joint_angle(joint, angle, expected_revision=None, session_id=None):
+    """Rate-limited single-joint targets; does not save a taught pose."""
+    global _control_revision
+    with _lock:
+        _require_position_teaching()
+        _check_position_revision(expected_revision, session_id)
+        profile = load_profile()
+        if joint not in ('base','shoulder','elbow','gripper'):
+            raise ValueError('팔 관절 이름을 확인하세요')
+        low, high = profile.limits[joint]
+        if type(angle) not in (int,float) or not math.isfinite(angle) or not low <= angle <= high:
+            raise ValueError('허용 각도 범위를 확인하세요')
+        holding = profile.holding(_read_arm_angles()['gripper'])
+        speed = min(config.arm_jog_speed, profile.move_speed(holding))
+        _control_revision += 1
+        _move_arm_targets('JOINT / '+joint, {joint:float(angle)}, profile, speed=speed)
+        return position_data()
 
 
 def rehearse(direction):
@@ -470,6 +542,6 @@ def submit_frame(frame):
     global _camera_seen_at
     with _lock:
         _camera_seen_at = time.monotonic()
-        if not config.web_start_required or _mission_started:
+        if not _position_teaching and (not config.web_start_required or _mission_started):
             runtime.submit_frame(frame)
     recorder.submit_frame(frame)

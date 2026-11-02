@@ -57,3 +57,13 @@ def register_position_routes(app, backend, assets):
     @app.post('/positions/stop')
     def position_stop():
         return action(lambda data: dict(move=backend.stop_position_move()))
+
+    @app.post('/positions/teaching')
+    def position_teaching():
+        return action(lambda data: backend.set_position_teaching(data.get('enabled'),
+            data.get('expected_revision'), data.get('session_id')))
+
+    @app.post('/positions/joint')
+    def position_joint():
+        return action(lambda data: backend.set_joint_angle(data.get('joint'), data.get('angle'),
+            data.get('expected_revision'), data.get('session_id')))

@@ -32,7 +32,7 @@ const calls=[];
 let finishPreview;
 const response = () => ({ok:true,status:200,json:async()=>structuredClone(data)});
 const context={AbortController,console,document:{activeElement:null,getElementById:element,
-  querySelectorAll: selector => selector==='[data-save]'?[save]:selector==='[data-move]'?[move]:[save,move]},
+  querySelectorAll: selector => selector==='[data-save]'?[save]:selector==='[data-move]'?[move]:selector==='[data-save],[data-move]'?[save,move]:[]},
   setTimeout:()=>1,clearTimeout:()=>{},fetch:async(url)=>{
     calls.push(url);
     if (url==='/positions/preview/angles') return new Promise(resolve=>{ finishPreview=()=>resolve(response()); });
