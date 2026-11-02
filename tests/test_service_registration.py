@@ -6,11 +6,47 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+import scripts.register_service as registration
 
 from scripts.register_service import SERVICE, unit_text, validate_unit
 
 
 class ServiceUnitTests(unittest.TestCase):
+    def test_registration_repairs_and_reloads_bad_unit_before_stop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)/'picar'
+            (root/'Server').mkdir(parents=True)
+            (root/'Server/WebServer.py').write_text('# not executed',encoding='utf-8')
+            (root/'mission_config.json').write_text('{}',encoding='utf-8')
+            etc = Path(directory)/'systemd'
+            etc.mkdir()
+            target = etc/SERVICE
+            target.write_text('WorkingDirectory="/broken"',encoding='utf-8')
+            backup = target.with_suffix(target.suffix+'.before-picar')
+            backup.write_text('original backup',encoding='utf-8')
+            calls = []
+            def run(args,check):
+                calls.append(args)
+                self.assertTrue(check)
+                if args[1]=='stop':
+                    self.assertEqual(calls[-2],['systemctl','daemon-reload'])
+                    self.assertIn('WorkingDirectory='+str(root)+'/Server\n',target.read_text(encoding='utf-8'))
+                return subprocess.CompletedProcess(args,0)
+            def mapped_path(value):
+                return etc if str(value)=='/etc/systemd/system' else Path(value)
+            with patch.object(registration,'ROOT',root),patch.object(registration,'Path',mapped_path),\
+                 patch.object(registration,'validate_unit') as verify,\
+                 patch.object(registration.subprocess,'run',side_effect=run),\
+                 patch.object(registration.sys,'platform','linux'),\
+                 patch.object(registration.os,'geteuid',return_value=0,create=True),\
+                 patch.object(registration.sys,'argv',['register_service.py','--start']):
+                registration.main()
+            verify.assert_called_once()
+            self.assertEqual(backup.read_text(encoding='utf-8'),'original backup')
+            self.assertEqual(calls,[['systemctl','daemon-reload'],['systemctl','stop',SERVICE],
+                ['systemctl','enable',SERVICE],['systemctl','start',SERVICE],
+                ['systemctl','--no-pager','status',SERVICE]])
+
     def test_scalar_path_has_no_argument_quotes_and_exec_path_stays_quoted(self):
         text = unit_text('/home/pi/picar kit')
         self.assertIn('\nWorkingDirectory=/home/pi/picar kit/Server\n',text)

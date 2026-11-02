@@ -59,10 +59,12 @@ def main():
     backup = target.with_suffix(target.suffix + '.before-picar')
     if target.exists() and not backup.exists():
         backup.write_bytes(target.read_bytes())
-    subprocess.run(['systemctl', 'stop', SERVICE], check=True)
     target.write_text(text, encoding='utf-8')
     target.chmod(0o644)
     subprocess.run(['systemctl', 'daemon-reload'], check=True)
+    # Repair the manager's bad-unit setting before asking it to stop/start.
+    # Replacing and reloading a unit does not itself start its controller.
+    subprocess.run(['systemctl', 'stop', SERVICE], check=True)
     subprocess.run(['systemctl', 'enable', SERVICE], check=True)
     if args.start:
         subprocess.run(['systemctl', 'start', SERVICE], check=True)
