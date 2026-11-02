@@ -12,9 +12,12 @@ from camera_opencv import Camera
 import camera_opencv
 import threading
 import mission_bridge
+from picar_mission.battery_alarm import alarm as battery_alarm
+from picar_mission.battery_routes import register_battery_routes
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
+register_battery_routes(app, battery_alarm, str(mission_bridge.ROOT / 'picar_mission'))
 camera = Camera()
 
 def gen(camera):

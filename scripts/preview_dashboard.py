@@ -3,11 +3,44 @@
 from pathlib import Path
 import time
 import uuid
+import sys
 from threading import RLock
 from flask import Flask, jsonify, request, send_from_directory
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0,str(ROOT))
+from picar_mission.battery_alarm import BatteryAlarm
+from picar_mission.battery_routes import register_battery_routes
 app = Flask(__name__)
+
+
+class PreviewBatteryAlarm(BatteryAlarm):
+    def snapshot(self):
+        data = super().snapshot()
+        data['sounding'] = data['low_voltage'] and data['sound_enabled']
+        data['sample_age_seconds'] = 0.
+        return data
+
+
+preview_battery = PreviewBatteryAlarm(ROOT.parent/'tmp'/'battery-preview'/'sound.json')
+preview_battery.update_voltage(7.4)
+register_battery_routes(app,preview_battery,str(ROOT/'picar_mission'),preview=True)
+
+
+@app.post('/battery/preview/voltage')
+def preview_voltage():
+    from urllib.parse import urlsplit
+    origin = request.headers.get('Origin')
+    if origin and urlsplit(origin).netloc != request.host:
+        return jsonify(error='미리보기 화면에서 설정하세요'),403
+    body = request.get_json(silent=True)
+    volts = body.get('volts') if isinstance(body,dict) else None
+    if type(volts) not in (int,float) or volts not in (5.8,7.4):
+        return jsonify(error='가상 전압을 선택하세요'),400
+    preview_battery.update_voltage(volts)
+    return jsonify(**preview_battery.snapshot(),preview=True)
+
 lock = RLock()
 started = None
 cancelled_at = None

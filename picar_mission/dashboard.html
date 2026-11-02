@@ -6,6 +6,8 @@
   <meta name="theme-color" content="#143e35">
   <title>PiCar · 미션 컨트롤</title>
   <link rel="stylesheet" href="/dashboard/assets/dashboard.css">
+  <link rel="stylesheet" href="/battery/assets/battery_alarm.css">
+  <script src="/battery/assets/battery_alarm.js" defer></script>
   <script src="/dashboard/assets/dashboard.js" defer></script>
 </head>
 <body>
@@ -26,6 +28,7 @@
     <div class="content">
       <section class="page-heading"><div><div class="eyebrow">READY, SET, MISSION.</div><h1>미션 컨트롤<span class="title-dot">.</span></h1><p>버튼 한 번으로 시작하고, 모든 진행 상황을 한눈에 확인하세요.</p></div><span class="session-tag" id="attempt">MISSION —</span></section>
 
+      <section class="battery-alarm" id="battery-alarm" aria-label="배터리 전압과 경고음"></section>
       <div class="notice" id="connection-notice" role="status" hidden></div>
       <section class="launch-card" aria-label="미션 실행">
         <div class="launch-info"><span class="state-pill" id="state-pill">연결 확인 중</span><h2 id="state-title">로봇 상태를 불러오고 있어요</h2><p id="state-detail">서버에 연결되면 시작 버튼이 활성화됩니다.</p></div>

@@ -7,6 +7,8 @@
   <title>PiCar · 자리별 팔 자세 저장</title>
   <link rel="stylesheet" href="/dashboard/assets/dashboard.css">
   <link rel="stylesheet" href="/positions/assets/positions.css">
+  <link rel="stylesheet" href="/battery/assets/battery_alarm.css">
+  <script src="/battery/assets/battery_alarm.js" defer></script>
   <script src="/positions/assets/positions.js" defer></script>
 </head>
 <body>
@@ -25,6 +27,7 @@
     <div class="content positions-content">
       <div class="preview-banner" id="preview-banner" hidden><strong>PC 미리보기 · 가상 각도</strong><span>실제 로봇에 연결되지 않으며, 저장도 미리보기 파일에만 기록됩니다.</span></div>
       <section class="page-heading"><div><div class="eyebrow">TEACH ONCE. KNOW EVERY POSITION.</div><h1>팔 자세 저장<span class="title-dot">.</span></h1><p>네 자리에 접근·집기·놓기 자세를 저장하세요. A는 출발 QR 쪽, B는 출발선 쪽입니다.</p></div><span class="session-tag" id="total-progress">0 / 12 SAVED</span></section>
+      <section class="battery-alarm" id="battery-alarm" aria-label="배터리 전압과 경고음"></section>
       <div class="notice" id="mode-notice" role="status" hidden></div>
 
       <section class="teaching-controls" aria-label="현재 팔 상태">
