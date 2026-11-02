@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#143e35">
+  <title>PiCar · 미션 컨트롤</title>
+  <link rel="stylesheet" href="/dashboard/assets/dashboard.css">
+  <script src="/dashboard/assets/dashboard.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/dashboard"><span class="brand-icon">P<span>↗</span></span><span>PiCar<span class="brand-sub">MISSION CONTROL</span></span></a>
+    <div class="side-section">WORKSPACE</div>
+    <nav aria-label="페이지">
+      <a class="nav-item selected" href="/dashboard" aria-current="page"><span>◫</span> 미션 컨트롤 <span class="nav-arrow">↗</span></a>
+      <a class="nav-item" href="/poses" target="_blank" rel="noopener"><span>⌁</span> 팔 자세 저장</a>
+      <a class="nav-item" href="/record" target="_blank" rel="noopener"><span>◎</span> 시연 기록</a>
+      <a class="nav-item" href="/" target="_blank" rel="noopener"><span>⊞</span> 수동 조종</a>
+    </nav>
+    <div class="side-bottom"><span class="robot-mark">▰</span><strong>PiCar-Pro V2</strong><span>Physical computing project</span><div class="side-line"></div><span><i class="dot" id="side-dot"></i> <span id="side-status">서버 연결 확인 중</span></span></div>
+  </aside>
+
+  <main>
+    <header class="topbar"><div class="breadcrumb">워크스페이스 <span>/</span> <strong>미션 컨트롤</strong></div><div class="connection"><i class="dot" id="connection-dot"></i><span id="connection-label">연결 확인 중</span></div></header>
+    <div class="content">
+      <section class="page-heading"><div><div class="eyebrow">READY, SET, MISSION.</div><h1>미션 컨트롤<span class="title-dot">.</span></h1><p>버튼 한 번으로 시작하고, 모든 진행 상황을 한눈에 확인하세요.</p></div><span class="session-tag" id="attempt">MISSION —</span></section>
+
+      <div class="notice" id="connection-notice" role="status" hidden></div>
+      <section class="launch-card" aria-label="미션 실행">
+        <div class="launch-info"><span class="state-pill" id="state-pill">연결 확인 중</span><h2 id="state-title">로봇 상태를 불러오고 있어요</h2><p id="state-detail">서버에 연결되면 시작 버튼이 활성화됩니다.</p></div>
+        <div class="launch-actions"><button class="button start" id="start" type="button" disabled><span class="play">▶</span><span id="start-label">미션 시작</span><span class="button-arrow">↗</span></button><button class="button stop" id="stop" type="button" disabled><span>■</span> 전체 동작 중지</button></div>
+      </section>
+      <p class="action-feedback" id="action-feedback" role="status" aria-live="polite"></p>
+
+      <section class="metrics" aria-label="실시간 측정">
+        <article class="metric"><div class="metric-label">QR 인식 <span class="metric-icon">▣</span></div><div class="metric-value qr-value" id="qr-value">—</div><div class="metric-note" id="qr-note">시작 후 QR을 인식합니다</div></article>
+        <article class="metric"><div class="metric-label">첫 번째 물체 방향 <span class="metric-icon">↔</span></div><div class="metric-value direction" id="direction">—</div><div class="metric-note" id="direction-note">LEFT / RIGHT QR 대기</div></article>
+        <article class="metric distance-metric"><div class="metric-label">모니터(QR)까지 거리 <span class="metric-icon">↦</span></div><div class="metric-value"><span id="distance">—</span><span class="unit">cm</span></div><div class="metric-note" id="distance-note">초음파 측정 대기</div></article>
+        <article class="metric"><div class="metric-label">정지선까지 남은 거리 <span class="metric-icon">⊣</span></div><div class="metric-value"><span id="remaining">—</span><span class="unit">cm</span></div><div class="metric-note">정지 목표 <strong id="target">30</strong> cm <span class="tiny-dot">·</span> <span id="remaining-note">측정 대기</span></div></article>
+      </section>
+
+      <div class="workspace-grid">
+        <section class="panel camera-panel">
+          <div class="panel-heading"><h2><span class="section-icon">◉</span> 실시간 카메라</h2><span class="live-badge" id="camera-badge"><i class="dot"></i> 연결 확인</span></div>
+          <div class="camera-view"><img id="camera" alt="로봇 전방 카메라의 실시간 영상"><div class="camera-placeholder" id="camera-placeholder"><span class="camera-symbol">▣</span><strong>카메라 영상 연결 중</strong><p>로봇의 전방 영상을 이곳에서 확인할 수 있어요.</p></div><div class="camera-overlay"><span class="camera-caption">FRONT CAMERA</span><span id="camera-direction">QR 대기</span></div></div>
+          <div class="camera-footer"><span><i class="dot muted" id="camera-dot"></i> <span id="camera-note">카메라 연결 확인 중</span></span><span>QR · LEFT / RIGHT</span></div>
+          <div class="distance-track"><div class="track-heading"><span>접근 진행</span><strong id="track-label">출발 대기</strong></div><div class="track" role="progressbar" aria-label="정지선 접근 진행" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="approach-progress"><span id="track-fill"></span><i id="track-car">▰</i></div><div class="track-ends"><span>출발 위치</span><span>정지선 <strong id="track-target">30 cm</strong></span></div></div>
+        </section>
+
+        <section class="panel mission-panel"><div class="panel-heading"><h2>미션 진행 순서</h2><span class="step-counter" id="step-counter">0 / 5</span></div>
+          <ol class="steps">
+            <li data-stage="1"><span class="step-number">01</span><div><h3>QR 인식 및 출발</h3><p>LEFT 또는 RIGHT 방향 확인</p><span class="step-status">대기</span></div></li>
+            <li data-stage="2"><span class="step-number">02</span><div><h3>직진 주행 및 정밀 정지</h3><p id="step-distance">모니터 앞 30 cm에 정지</p><span class="step-status">대기</span></div></li>
+            <li data-stage="3"><span class="step-number">03</span><div><h3>첫 번째 물체 이동</h3><p id="first-transfer">QR 방향 → 반대편 빈 상자</p><span class="step-status">대기</span></div></li>
+            <li data-stage="4"><span class="step-number">04</span><div><h3>두 번째 물체 이동</h3><p id="second-transfer">반대편 → 처음 방향의 빈 상자</p><span class="step-status">대기</span></div></li>
+            <li data-stage="5"><span class="step-number">05</span><div><h3>미션 완료</h3><p>두 물체 이동 후 시간 기록 종료</p><span class="step-status">대기</span></div></li>
+          </ol>
+          <div class="elapsed"><div><span class="eyebrow">MISSION TIME</span><strong id="timer">00:00.0</strong></div><span class="timer-state" id="timer-state">시작 대기</span></div>
+        </section>
+      </div>
+      <div class="bottom-row"><span id="arm-note">팔 자동 동작 설정 확인 중</span><a href="/mission/status" target="_blank" rel="noopener">상세 상태 보기 ↗</a></div>
+      <footer>PiCar-Pro V2 <span>QR → 30 cm 정지 → 물체 2개 운반</span></footer>
+    </div>
+  </main>
+  <dialog id="restart-dialog"><form method="dialog"><span class="eyebrow">NEXT MISSION</span><h2>출발 준비가 끝났나요?</h2><p>차를 출발선으로 옮기고, 팔과 물체를 시작 위치에 놓아주세요. 이전 QR과 시간은 초기화됩니다.</p><div class="dialog-actions"><button class="button secondary" value="cancel">취소</button><button class="button start" value="start">새 미션 시작 ↗</button></div></form></dialog>
+  <noscript>미션 컨트롤을 사용하려면 브라우저에서 JavaScript를 켜주세요.</noscript>
+</body>
+</html>

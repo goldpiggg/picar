@@ -30,6 +30,7 @@ class MissionConfig:
     max_gap_seconds: float = 1.5
     max_frame_age_seconds: float = 1.5
     auto_approach_enabled: bool = True
+    web_start_required: bool = True
     direct_speed: int = 40
     direct_distance_max_age_seconds: float = 0.5
     direct_distance_retry_seconds: float = 3.0
@@ -90,6 +91,8 @@ def load_config(path=None):
         raise ValueError('distance_offset_cm must be finite')
     if type(cfg.auto_approach_enabled) is not bool:
         raise ValueError('auto_approach_enabled must be boolean')
+    if type(cfg.web_start_required) is not bool:
+        raise ValueError('web_start_required must be boolean')
     if type(cfg.arm_enabled) is not bool:
         raise ValueError('arm_enabled must be boolean')
     if cfg.arm_enabled and not cfg.auto_approach_enabled:
