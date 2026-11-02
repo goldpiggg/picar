@@ -5,3 +5,6 @@ __pycache__/
 *.log
 # Arm demonstration recordings (picar_mission/recorder.py); copy off the robot instead.
 data/
+# Four-position angles are taught on the robot, independently of legacy poses.
+arm_positions.json
+arm_positions.json.*

@@ -113,7 +113,11 @@ def record_action(action):
     return jsonify(result=result, status=recorder.status())
 
 
-@app.route('/poses')
+from picar_mission.position_routes import register_position_routes
+register_position_routes(app, mission_bridge, str(mission_bridge.ROOT / 'picar_mission'))
+
+
+@app.route('/poses/legacy')
 def poses_page():
     return send_from_directory(str(mission_bridge.ROOT / 'picar_mission'), 'poses.html')
 

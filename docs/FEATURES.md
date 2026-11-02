@@ -18,7 +18,7 @@ Adeept PiCar 제조사 코드 위에 추가한 기능을 정리했습니다. 목
 | 정지 후 바퀴·조향 잠금 | 팔이 일하는 동안 차체가 움직이지 않게 하기 위해 |
 | 조향 예압과 자이로(MPU6050) 직진 유지 | 조향 유격 때문에 한쪽으로 휘는 것을 줄이기 위해 |
 
-## 3. 로봇팔 자세 가르치기 (`/poses` 페이지)
+## 3. 로봇팔 자세 가르치기 (`/poses/legacy` 페이지)
 | 기능 | 의도 |
 |---|---|
 | **저장** 버튼 | 웹으로 팔을 맞춘 뒤 그 각도를 `arm_poses.json`에 바로 기록하기 위해(직접 숫자를 적지 않아도 됨) |
@@ -57,7 +57,7 @@ RIGHT 순서: 중앙 → 오른쪽 물체 위 → 집게 열기 → 집기 → �
 
 ## 사용 순서 요약
 1. `mission_config.json`에서 `auto_approach_enabled`, `arm_enabled`를 `false`로 두고 서버를 실행합니다.
-2. `http://로봇IP:5000/poses`에서 자세를 맞추고 **저장**합니다.
+2. `http://로봇IP:5000/poses/legacy`에서 자세를 맞추고 **저장**합니다.
 3. **RIGHT/LEFT 순서 실행**으로 미리 시험합니다.
 4. 문제없으면 `calibration_confirmed`, `arm_enabled`, `auto_approach_enabled`를 `true`로 바꾸고 서버를 재시작합니다.
 

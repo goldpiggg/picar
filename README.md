@@ -239,3 +239,7 @@ Adeept is committed to assist customers in their education of robotics, programm
 ## Copyright
 
 Adeept brand and logo are copyright of Shenzhen Adeept Technology Co., Ltd. and cannot be used without written permission.
+
+### 네 자리의 팔 자세 저장과 PC 미리보기
+
+`/poses`에서 LEFT-A·RIGHT-A·LEFT-B·RIGHT-B의 접근·집기·놓기 자세를 따로 저장합니다. A는 출발 QR 쪽, B는 출발선 쪽입니다. 기존 자세는 `/poses/legacy`에 보존되며 새 자리의 QR 자동 선택은 다음 단계입니다. `python scripts/preview_positions.py`로 로봇 없이 `http://127.0.0.1:5082/poses`를 확인할 수 있습니다. 자세한 내용은 [ARM_POSITIONS.md](docs/ARM_POSITIONS.md)를 참고하세요.

@@ -200,6 +200,14 @@ class HttpTests(unittest.TestCase):
             response.close()
         self.assertEqual(self.client.get('/dashboard/assets/config.py').status_code,404)
 
+    def test_four_position_page_keeps_legacy_teaching_page_available(self):
+        for url, marker in [('/poses','positions.js'),('/poses/legacy','left_pick_above')]:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code,200)
+            self.assertIn(marker,response.get_data(as_text=True))
+            response.close()
+        self.assertFalse(self.client.get('/positions/data').json['preview'])
+
     def test_start_uses_bridge_and_returns_state(self):
         with patch.object(self.bridge,'start_mission',return_value={'state':'WAIT_QR'}) as launch:
             response = self.client.post('/dashboard/start',json={'expected_revision':0,'session_id':self.bridge.SESSION_ID})

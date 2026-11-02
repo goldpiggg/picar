@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#143e35">
+  <title>PiCar · 자리별 팔 자세 저장</title>
+  <link rel="stylesheet" href="/dashboard/assets/dashboard.css">
+  <link rel="stylesheet" href="/positions/assets/positions.css">
+  <script src="/positions/assets/positions.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/dashboard"><span class="brand-icon">P<span>↗</span></span><span>PiCar<span class="brand-sub">MISSION CONTROL</span></span></a>
+    <div class="side-section">WORKSPACE</div>
+    <nav aria-label="페이지">
+      <a class="nav-item" href="/dashboard"><span>◫</span> 미션 컨트롤</a>
+      <a class="nav-item selected" href="/poses" aria-current="page"><span>⌁</span> 팔 자세 저장 <span class="nav-arrow">↗</span></a>
+      <a class="nav-item" href="/poses/legacy" id="legacy-nav"><span>▤</span> 기존 자세 저장</a>
+    </nav>
+    <div class="side-bottom"><span class="robot-mark">▰</span><strong>네 자리, 고정된 기준.</strong><span>A · 출발 QR 쪽</span><span>B · 출발선 쪽</span><div class="side-line"></div><span><i class="dot" id="side-dot"></i><span id="side-status">연결 확인 중</span></span></div>
+  </aside>
+  <main>
+    <header class="topbar"><div class="breadcrumb">워크스페이스 <span>/</span> <strong>팔 자세 저장</strong></div><div class="connection"><i class="dot" id="connection-dot"></i><span id="connection-label">연결 확인 중</span></div></header>
+    <div class="content positions-content">
+      <div class="preview-banner" id="preview-banner" hidden><strong>PC 미리보기 · 가상 각도</strong><span>실제 로봇에 연결되지 않으며, 저장도 미리보기 파일에만 기록됩니다.</span></div>
+      <section class="page-heading"><div><div class="eyebrow">TEACH ONCE. KNOW EVERY POSITION.</div><h1>팔 자세 저장<span class="title-dot">.</span></h1><p>네 자리에 접근·집기·놓기 자세를 저장하세요. A는 출발 QR 쪽, B는 출발선 쪽입니다.</p></div><span class="session-tag" id="total-progress">0 / 12 SAVED</span></section>
+      <div class="notice" id="mode-notice" role="status" hidden></div>
+
+      <section class="teaching-controls" aria-label="현재 팔 상태">
+        <div class="control-title"><div><span class="eyebrow" id="angle-eyebrow">CURRENT COMMANDED ANGLES</span><h2 id="angle-title">현재 팔 명령각</h2></div><span class="mode-tag" id="mode-tag">확인 중</span></div>
+        <div class="joint-grid" id="joint-grid"></div>
+        <div class="control-actions"><p id="angle-help">기본 웹 제어에서 팔을 맞추고, 실제로 도착한 뒤 해당 자세를 저장하세요.</p><div><a class="button secondary" href="/" target="_blank" rel="noopener" id="manual-link">팔 수동 조절 ↗</a><button class="button stop" id="arm-stop" type="button" disabled><span>■</span> 팔 이동 정지</button></div></div>
+        <p class="move-label" id="move-label" aria-live="polite">팔 동작 대기</p>
+      </section>
+      <p class="action-feedback position-feedback" id="feedback" role="status" aria-live="polite"></p>
+
+      <section class="position-workspace" aria-label="네 자리의 팔 자세">
+        <div class="section-heading"><div><h2>자리별 자세</h2><p>차량이 출발 QR을 바라보는 기준입니다. PICK/PLACE 역할이 바뀌어도 자리 이름은 유지됩니다.</p></div><span class="quiet-label">4 POSITIONS</span></div>
+        <div class="orientation-mark"><span></span><strong>↑ LEFT / RIGHT 출발 QR</strong><span></span></div>
+        <div class="side-labels"><span>왼쪽 · LEFT</span><span>오른쪽 · RIGHT</span></div>
+        <div class="position-grid" id="position-grid"></div>
+        <div class="orientation-mark start-mark"><span></span><strong>출발선 · 차량이 출발한 쪽</strong><span></span></div>
+      </section>
+
+      <section class="common-panel" aria-label="공통 팔 자세">
+        <div class="section-heading"><div><h2>공통 자세</h2><p>집게의 열림·닫힘과 중앙을 통과하는 자세를 함께 저장합니다.</p></div><span class="quiet-label" id="common-progress">0 / 4 SAVED</span></div>
+        <div class="common-grid" id="common-grid"></div>
+      </section>
+      <div class="position-notes"><p>저장값은 마지막으로 보낸 명령각입니다. 실제 팔의 위치를 측정한 값은 아닙니다.</p><p>새 자리별 자세는 보관·이동 확인에 사용합니다. QR 자리 판별과 자동 운반 연결은 다음 단계입니다.</p><a href="/poses/legacy" id="legacy-link">기존 PICK/PLACE 저장값 보기 ↗</a></div>
+      <footer>PiCar · ARM POSITION LIBRARY <span>A → 출발 QR / B → 출발선</span></footer>
+    </div>
+  </main>
+  <dialog id="confirm-dialog"><div class="eyebrow" id="dialog-tag">POSITION LIBRARY</div><h2 id="dialog-title">저장한 자세를 확인할까요?</h2><p id="dialog-text"></p><form method="dialog" class="dialog-actions"><button class="button secondary" value="cancel">취소</button><button class="button start" id="confirm-action" value="confirm">확인</button></form></dialog>
+</body>
+</html>

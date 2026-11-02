@@ -10,6 +10,7 @@ from picar_mission.config import load_config
 from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
 from picar_mission.arm_sequence import MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_profile, pose_targets, save_pose as save_arm_pose
+from picar_mission.arm_positions import PositionStore
 from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
 from picar_mission.heading import GyroHeading
 from picar_mission.qr_scan import emit
@@ -279,15 +280,20 @@ def save_pose(name):
 
 def move_to_pose(name):
     """Teach mode only: move the arm to a saved pose at the profile speed."""
-    global _pose_move
     if config.auto_approach_enabled:
         raise ValueError('auto_approach_enabled=false 수동 모드에서만 이동할 수 있습니다')
     if _servo is None:
         raise ValueError('서보가 아직 준비되지 않았습니다')
     profile = load_profile()
     targets = pose_targets(profile,name)
+    return _move_arm_targets(name, targets, profile)
+
+
+def _move_arm_targets(name, targets, profile):
+    global _pose_move
     stop_pose_move()
     driver = ArmAdapter(_servo)
+    driver.hold()
     speed = profile.move_speed(profile.holding(driver.read_angles()['gripper']))
     move = PoseMove(driver,targets,speed)
     stop = Event()
@@ -309,6 +315,53 @@ def move_to_pose(name):
     _pose_move = dict(info=info,stop=stop,thread=thread)
     thread.start()
     return pose_move_status()
+
+
+def _position_store():
+    return PositionStore(ROOT/'arm_positions.json', limits=load_profile().limits)
+
+
+def position_data():
+    with _lock:
+        return dict(profile=_position_store().read(), manual=not config.auto_approach_enabled,
+            angles=_read_arm_angles(), move=pose_move_status(), preview=False,
+            legacy_available=True, control_revision=_control_revision, session_id=SESSION_ID)
+
+
+def _require_position_teaching():
+    if config.auto_approach_enabled:
+        raise ValueError('수동 저장 모드가 필요합니다. auto_approach_enabled=false, arm_enabled=false로 설정하고 서버를 재시작하세요')
+    if _servo is None:
+        raise ValueError('서보가 아직 준비되지 않았습니다')
+
+
+def save_position(position, pose):
+    with _lock:
+        _require_position_teaching()
+        if _pose_move is not None and _pose_move['thread'].is_alive():
+            raise ValueError('팔이 도착하거나 정지한 뒤 저장하세요')
+        return _position_store().save(position, pose, _read_arm_angles())
+
+
+def move_to_position(position, pose, expected_revision=None, session_id=None):
+    global _control_revision
+    with _lock:
+        _require_position_teaching()
+        if type(expected_revision) is not int or expected_revision != _control_revision or session_id != SESSION_ID:
+            raise ValueError('제어 상태가 바뀌었습니다. 현재 상태를 확인하고 다시 이동하세요')
+        targets = _position_store().targets(position, pose)
+        _control_revision += 1
+        return _move_arm_targets(position+' / '+pose, targets, load_profile())
+
+
+def stop_position_move():
+    global _control_revision
+    with _lock:
+        _control_revision += 1
+        stop_pose_move()
+        if _servo is not None:
+            ArmAdapter(_servo).hold()
+        return pose_move_status()
 
 
 def rehearse(direction):
