@@ -38,6 +38,7 @@ class MissionConfig:
     direct_distance_retry_seconds: float = 3.0
     arm_start_delay_seconds: float = 1.0
     # Center is BASE 90 degrees: look left/right by 90 degrees, BASE only.
+    # A larger BASE angle turns left, like the manufacturer's lookleft button.
     qr_prepare_left_base_deg: float = 180.0
     qr_prepare_right_base_deg: float = 0.0
     side_qr_settle_seconds: float = 0.3

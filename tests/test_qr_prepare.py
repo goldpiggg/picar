@@ -115,7 +115,7 @@ class ProductionPreparationTests(unittest.TestCase):
         self.assertFalse(status['dashboard']['finished'])
         self.assertEqual(status['dashboard']['remaining_cm'],0.)
         self.assertEqual(status['dashboard']['distance_source'],'FINAL')
-        self.assertEqual(servo.nowPos[1:5],[0.,81.,103.,145.])
+        self.assertEqual(servo.nowPos[1:5],[0.,81.,103.,145.])  # RIGHT turns BASE down to 0.
         self.assertEqual({channel for channel,angle in writes},{1})
         self.assertIsNone(controller.arm)
         self.assertTrue(all(command[0]=='stop' for command in wheels[last_wheel:]))
