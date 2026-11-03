@@ -18,7 +18,7 @@ from test_dashboard import load_bridge
 class PreparationSettingsTests(unittest.TestCase):
     def test_defaults_are_ninety_degrees_either_side_of_center(self):
         cfg=load_config()
-        self.assertEqual((cfg.qr_prepare_left_base_deg,cfg.qr_prepare_right_base_deg),(0.,180.))
+        self.assertEqual((cfg.qr_prepare_left_base_deg,cfg.qr_prepare_right_base_deg),(180.,0.))
         self.assertFalse(cfg.arm_enabled)
 
     def test_invalid_turn_targets_and_delay_are_rejected(self):
@@ -106,20 +106,20 @@ class ProductionPreparationTests(unittest.TestCase):
         self.assertEqual(writes,[])
         self.assertTrue(controller.drive.locked)
         last_wheel=len(wheels)
-        def forbidden(): raise AssertionError('No post-stop sensor/layout reads')
-        controller.read_sample=controller.qr_snapshot=forbidden
+        def forbidden(): raise AssertionError('No post-stop sensor reads')
+        controller.read_sample=forbidden
         for _ in range(250): tick(None)
         status=bridge.status()
-        self.assertEqual(status['state'],'QR_VIEW_READY')
-        self.assertEqual(status['dashboard']['arm_mode'],'qr_prepare_only')
-        self.assertTrue(status['dashboard']['finished'])
+        self.assertEqual(status['state'],'SIDE_QR_WAIT')
+        self.assertEqual(status['dashboard']['arm_mode'],'sequence_preview')
+        self.assertFalse(status['dashboard']['finished'])
         self.assertEqual(status['dashboard']['remaining_cm'],0.)
         self.assertEqual(status['dashboard']['distance_source'],'FINAL')
-        self.assertEqual(servo.nowPos[1:5],[180.,81.,103.,145.])
+        self.assertEqual(servo.nowPos[1:5],[0.,81.,103.,145.])
         self.assertEqual({channel for channel,angle in writes},{1})
         self.assertIsNone(controller.arm)
         self.assertTrue(all(command[0]=='stop' for command in wheels[last_wheel:]))
-        self.assertEqual(bridge.runtime.snapshot()['state'],'DIRECTION_CONFIRMED')
+        self.assertEqual(bridge.runtime.snapshot()['state'],'WAIT_SIDE_QR')
 
 
 if __name__=='__main__': unittest.main()

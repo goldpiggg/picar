@@ -46,3 +46,22 @@ class QrPreparation:
 
     def snapshot(self):
         return dict(state=self.state, direction=self.direction, base_target_deg=self.target)
+
+
+class ArmReset(QrPreparation):
+    """Restore the startup angles on arm channels only before scanning a new QR."""
+    def __init__(self, driver, profile, targets, speed):
+        super().__init__(driver, profile, {}, speed)
+        self.reset_targets = dict(targets)
+
+    def start(self, now):
+        if self.state != 'IDLE':
+            raise RuntimeError('Arm reset cannot restart')
+        self.profile.check_angles(self.reset_targets)
+        self.driver.hold()
+        speed = self.speed() if callable(self.speed) else self.speed
+        self.move = PoseMove(self.driver, self.reset_targets, speed, clock=lambda: now)
+        self.started_at, self.state = now, 'MOVING'
+
+    def snapshot(self):
+        return dict(state=self.state, targets_deg=dict(self.reset_targets))

@@ -11,10 +11,13 @@ class Element {
     this.listeners={}; this.classList={toggle(){},add(){},remove(){}};
     this.lastChild={textContent:''}; this.hidden=false;
     this.style={};
+    this.children=[];
   }
   addEventListener(name,callback) { this.listeners[name]=callback; }
   setAttribute() {}
   querySelector() { return new Element(); }
+  replaceChildren(...items) { this.children=items; }
+  append(...items) { this.children.push(...items); }
 }
 const elements = new Map(), streams = [], calls = [], timers = [];
 const element = id => {
@@ -28,7 +31,7 @@ const state={first_direction:null,error:null,target_stop_latched:false,arm:null,
     arm_enabled:false,arm_calibrated:false,distance_cm:null,remaining_cm:null,
     target_distance_cm:30,camera_online:false,camera_generation:1}};
 const context={AbortController,console,Date:ClockDate,performance:{now:()=>now},
-  document:{getElementById:element,querySelectorAll:()=>[]},
+  document:{getElementById:element,querySelectorAll:()=>[],createElement:()=>new Element()},
   setTimeout:(callback,delay)=>{timers.push({callback,delay});return timers.length;},
   clearTimeout:()=>{},setInterval:()=>{},fetch:async(url,options)=>{
     calls.push({url,method:options.method});

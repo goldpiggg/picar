@@ -8,7 +8,7 @@
 
 제조사 코드 전체와 QR·주행·팔 모듈을 포함합니다. **실행 파일은 기존 `Server/WebServer.py`입니다. 새 main.py는 없습니다.**
 
-기본 동작은 **LEFT/RIGHT QR 1회 인식 → 조향 정렬 → 배터리 보정된 느린 속도로 직진(자이로 방향 유지) → 38cm에서 브레이크 → 펄스로 조금씩 움직여 30cm ±1cm에 정지 → BASE만 해당 방향으로 90° 회전 → 대기**입니다. 중앙 BASE 90° 기준 LEFT는 0°, RIGHT는 180°입니다. PICK·PLACE QR을 보기 위한 준비까지만 실행하며 자동 운반은 시작하지 않습니다. [QR 보기 준비 안내](docs/QR_PREPARATION.md)를 참고하세요.
+기본 동작은 **새 미션 → 팔 초기 자세 복원 → LEFT/RIGHT QR → 직진·펄스 접근 → 30cm ±1cm 정지 → BASE만 해당 방향으로 90° 회전 → PICK·PLACE QR로 네 시퀀스 중 하나 선택·표시 → 대기**입니다. 중앙 BASE 90° 기준 LEFT는 180°, RIGHT는 0°입니다. 자동 운반은 시작하지 않습니다. [시퀀스 선택 안내](docs/QR_PREPARATION.md)를 참고하세요.
 
 ## 자주 바꾸는 설정 4개
 
@@ -26,8 +26,9 @@
 ## 현재 실행 흐름
 
 ```text
-WAIT_QR → STEER_PRELOAD(0.2초) → STEER_SETTLE(0.3초) → DRIVING ─38cm 이하─▶ PULSE_SETTLE ⇄ PULSING
-                                                                              └─ 30±1cm ─▶ ARM_WAIT → QR_TURNING → QR_VIEW_READY(대기)
+ARM_RESET → WAIT_QR → STEER_PRELOAD(0.2초) → STEER_SETTLE(0.3초) → DRIVING → PULSE_SETTLE ⇄ PULSING
+                                                        30±1cm 정지 → ARM_WAIT → QR_TURNING
+                                                                   → SIDE_QR_WAIT → SEQUENCE_READY(선택 표시·대기)
 ```
 
 - 같은 QR의 연속 프레임이나 추가 확인 시간을 요구하지 않습니다. LEFT/RIGHT 동시 인식, 같은 출발 QR 여러 개, PICK/PLACE만 보이는 경우에는 출발하지 않습니다.
@@ -47,13 +48,14 @@ WAIT_QR → STEER_PRELOAD(0.2초) → STEER_SETTLE(0.3초) → DRIVING ─38cm �
 
 `approach_complete=true`는 차가 멈춘 상태에서 잰 중앙값이 30 ±1cm였다는 뜻입니다. 이때 `target_stop_latched=true`, `final_distance_cm`에 그 거리가 기록되고, 이후 바퀴 전진·후진·조향 명령을 잠급니다. 새 QR이나 거리값으로 잠금을 풀거나 다시 출발하지 않습니다.
 
-`ARM_WAIT`에서 기본 1초를 기다린 뒤 `QR_TURNING`에서 BASE만 해당 방향으로 돌립니다. 도착하면 `QR_VIEW_READY`에서 대기합니다. 어깨·팔꿈치·집게는 유지하고, PICK/PLACE 배치 판단 요청과 자동 운반은 시작하지 않습니다. 이 준비는 기존 `arm_enabled`·`calibration_confirmed`와 별개이며, 두 설정을 켜도 운반으로 넘어가지 않습니다. 정지선 고정 후에는 초음파를 다시 읽지 않고 바퀴 잠금을 유지합니다. 대기 시간 1초는 임시값이며 실제 정착 시간에 맞춰 조정합니다.
+새 미션은 `ARM_RESET`에서 팔 4개 관절을 서버 시작 자세(기본 모두 90°)로 복원한 뒤 출발 QR을 기다립니다. 정지 후 `ARM_WAIT`에서 기본 1초를 기다리고 `QR_TURNING`에서 BASE만 돌립니다. 어깨·팔꿈치·집게는 유지하며, `SIDE_QR_WAIT`에서 PICK과 PLACE QR의 좌우 순서를 비교합니다. RIGHT를 볼 때 화면 왼쪽이 A, LEFT를 볼 때 화면 오른쪽이 A입니다. 같은 결과가 3프레임 연속 확인되면 `SEQUENCE_READY`에서 LEFT-A·LEFT-B·RIGHT-A·RIGHT-B 중 시작할 자리와 전체 운반 순서를 표시합니다. 자동 운반은 시작하지 않습니다. `arm_enabled`·`calibration_confirmed`와 별개이며, 정지 후 바퀴 잠금을 유지합니다.
 
 ## 모듈 연결
 
 ```mermaid
 flowchart TD
     W[Server/WebServer.py 기존 실행점] --> B[mission_bridge.py]
+    B --> I[새 미션 시 팔 초기 자세 복원]
     W --> A[app.py 웹 화면]
     A --> C[camera_opencv.py 공유 카메라]
     C --> Q[runtime.py 및 qr_scan.py]
@@ -64,7 +66,7 @@ flowchart TD
     D --> S[38cm 브레이크 후 펄스로 30±1cm 정지]
     S --> H[바퀴 잠금 + 1초 대기]
     H --> L[BASE만 QR 방향으로 90도 회전]
-    L --> X[QR 보기 준비 완료 · 대기]
+    L --> X[PICK·PLACE QR로 4개 시퀀스 중 선택·표시]
     B --> P[웹 상태 /mission/status]
 ```
 
@@ -129,10 +131,11 @@ sudo python3 Server/WebServer.py
 | `direct_distance_max_age_seconds` | 0.5 | 사용 가능한 현재 거리값의 최대 나이 |
 | `direct_distance_retry_seconds` | 3.0 | 측정 실패 때 멈춘 채 재측정하는 시간(주행 중, 펄스 후 측정 모두) |
 | `arm_start_delay_seconds` | 1.0 | 바퀴 잠금 후 BASE 회전 전 대기, 임시값 |
-| `qr_prepare_left_base_deg` | 0.0 | LEFT QR 후 BASE 절대 목표각(중앙 90°에서 왼쪽 90°) |
-| `qr_prepare_right_base_deg` | 180.0 | RIGHT QR 후 BASE 절대 목표각(중앙 90°에서 오른쪽 90°) |
-| `layout_frames` | 3 | 박스 배치가 같은 결과로 연속 몇 프레임 나와야 확정할지 |
-| `layout_min_gap` | 0.05 | 위/아래로 구분할 QR 중심 높이 차이의 최소값(화면 높이 비율) |
+| `qr_prepare_left_base_deg` | 180.0 | LEFT QR 후 BASE 절대 목표각(중앙 90°에서 왼쪽 90°) |
+| `qr_prepare_right_base_deg` | 0.0 | RIGHT QR 후 BASE 절대 목표각(중앙 90°에서 오른쪽 90°) |
+| `side_qr_settle_seconds` | 0.3 | BASE 회전 완료 뒤 이 시간 이후 프레임부터 자리 판별 |
+| `layout_frames` | 3 | 같은 자리 판별이 연속 몇 프레임 나와야 시퀀스를 선택할지 |
+| `layout_min_gap` | 0.05 | 현재 옆면 판별은 QR 두 중심의 가로 간격(화면 너비 비율) |
 | `layout_timeout_seconds` | 5.0 | 박스 배치를 기다리는 최대 시간. 넘으면 팔을 움직이지 않고 `ERROR` |
 | `approach_timeout_seconds` | 40.0 | 주행 시간 한도 |
 | `auto_approach_enabled` | true | 자동 주행 사용 |
@@ -251,6 +254,6 @@ Adeept brand and logo are copyright of Shenzhen Adeept Technology Co., Ltd. and 
 
 ### 네 자리의 팔 자세 저장과 PC 미리보기
 
-`/poses`에서 LEFT-A·RIGHT-A·LEFT-B·RIGHT-B의 접근·집기·놓기 자세를 따로 저장합니다. A는 출발 QR 쪽, B는 출발선 쪽입니다. 기존 자세는 `/poses/legacy`에 보존되며 새 자리의 QR 자동 선택은 다음 단계입니다. `python scripts/preview_positions.py`로 로봇 없이 `http://127.0.0.1:5082/poses`를 확인할 수 있습니다. 자세한 내용은 [ARM_POSITIONS.md](docs/ARM_POSITIONS.md)를 참고하세요.
+`/poses`에서 LEFT-A·RIGHT-A·LEFT-B·RIGHT-B의 접근·집기·놓기 자세를 따로 저장합니다. A는 출발 QR 쪽, B는 출발선 쪽입니다. 전체 동작 중지 후 바로 수동 조작할 수 있고, 기존 자세 이름 때문에 저장 화면이 오류를 내지 않도록 호환합니다. QR로 네 시작 시퀀스를 선택해 표시하지만 저장한 자세의 자동 운반은 대기합니다. `python scripts/preview_positions.py`로 로봇 없이 `http://127.0.0.1:5082/poses`를 확인할 수 있습니다. 자세한 내용은 [ARM_POSITIONS.md](docs/ARM_POSITIONS.md)를 참고하세요.
 
 대시보드와 자세 저장 화면에서 저전압 경고음을 끄거나 다시 켤 수 있습니다. 무시하기는 묵음 표시를 남기며, 켜기 자체가 소리를 내지는 않습니다. [전압 경고음 안내](docs/BATTERY_SOUND.md)를 참고하세요.

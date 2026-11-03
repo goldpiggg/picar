@@ -73,13 +73,16 @@ class LifecycleTests(unittest.TestCase):
         self.assertIs(previous,self.bridge.controller)
         self.assertIs(qr,self.bridge.runtime)
         self.assertEqual(second['dashboard']['attempt'],1)
-        self.assertEqual(second['dashboard']['state'],'WAIT_QR')
+        self.assertIn(second['dashboard']['state'],('ARM_RESET','WAIT_QR'))
 
     def test_fresh_qr_after_button_reaches_drive_and_stop(self):
         self.bridge.config = replace(self.bridge.config,direct_steer_preload_seconds=0.,direct_steer_settle_seconds=0.)
         self.start()
         class Frame:
             def copy(self): return self
+        deadline = time.monotonic()+1.
+        while time.monotonic()<deadline and self.bridge.controller.snapshot()['state']=='ARM_RESET':
+            time.sleep(.01)
         self.bridge.submit_frame(Frame())
         deadline = time.monotonic()+1.
         while time.monotonic()<deadline and not any(isinstance(c,tuple) and c[0]=='drive' for c in self.commands):
