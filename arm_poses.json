@@ -9,7 +9,7 @@
     "gripper": [0, 189]
   },
   "gripper_deg": {"open": 110, "closed": 70},
-  "speed_deg_per_second": 20,
+  "speed_deg_per_second": 40,
   "settle_seconds": 0.5,
   "grip_settle_seconds": 0.8,
   "step_timeout_seconds": 20,

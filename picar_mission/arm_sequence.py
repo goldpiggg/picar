@@ -12,7 +12,8 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 JOINTS = ('base','shoulder','elbow','gripper')
-DEFAULT_CARRY_SPEED = 10.
+DEFAULT_CARRY_SPEED = 20.
+MAX_ARM_SPEED = 120.  # degrees/second; also caps the dashboard speed scale.
 PEAK_SPEED_RATIO = 1.875  # ease() peaks at 1.875x its average speed.
 MAX_TICK_SECONDS = .1  # A stalled loop must not jump ahead on the path.
 MAX_SERVO_ANGLE = 189  # 500~2500us at the original degree scale (RPIservo.ARM_MAX_ANGLE).
@@ -32,6 +33,8 @@ def number(value):
 
 
 class ArmProfile:
+    speed_scale = 1.  # Dashboard arm speed; 1.5 moves 50% faster, capped at MAX_ARM_SPEED.
+
     def __init__(self, values):
         self.values = values
         if values.get('schema_version')!=1 or type(values.get('calibration_confirmed')) is not bool:
@@ -61,8 +64,8 @@ class ArmProfile:
                     'step_timeout_seconds','sequence_timeout_seconds'):
             if not number(values.get(key)) or values[key]<=0:
                 raise ValueError('Invalid arm setting: '+key)
-        if values['speed_deg_per_second']>60:
-            raise ValueError('Arm command rate must not exceed 60 degrees/second')
+        if values['speed_deg_per_second']>MAX_ARM_SPEED:
+            raise ValueError('Arm command rate must not exceed %g degrees/second'%MAX_ARM_SPEED)
         # Optional, so profiles taught before this setting keep loading.
         carry = values.get('carry_speed_deg_per_second',min(DEFAULT_CARRY_SPEED,values['speed_deg_per_second']))
         if not number(carry) or not 0<carry<=values['speed_deg_per_second']:
@@ -76,7 +79,8 @@ class ArmProfile:
         return abs(gripper_angle-self.gripper['closed'])<abs(gripper_angle-self.gripper['open'])
 
     def move_speed(self, holding):
-        return self.carry_speed if holding else self.values['speed_deg_per_second']
+        speed = self.carry_speed if holding else self.values['speed_deg_per_second']
+        return min(MAX_ARM_SPEED,speed*self.speed_scale)
 
     def check_angles(self, angles):
         if set(angles)!=set(JOINTS):

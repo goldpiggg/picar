@@ -190,6 +190,33 @@ class LifecycleTests(unittest.TestCase):
             self.bridge.start_mission(revision)
         self.assertEqual(self.bridge._attempt,0)
 
+    def test_arm_speed_scales_poses_carry_and_buttons_and_persists(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.bridge.ARM_SPEED_FILE = Path(folder)/'arm_speed.json'
+            speed = self.bridge.status()['dashboard']['arm_speed']
+            self.assertEqual((speed['percent'],speed['move_deg_per_second'],speed['carry_deg_per_second'],
+                              speed['jog_deg_per_second']),(100,40.,20.,20))
+            speed = self.bridge.set_arm_speed(150)
+            self.assertEqual((speed['move_deg_per_second'],speed['carry_deg_per_second'],speed['jog_deg_per_second']),(60.,30.,30))
+            self.assertEqual(self.bridge._load_profile().move_speed(False),60.)
+            self.assertEqual(json.loads(self.bridge.ARM_SPEED_FILE.read_text(encoding='utf-8')),{'percent':150})
+            self.assertEqual(self.bridge._read_arm_speed(),150)
+            speed = self.bridge.set_arm_speed(300)
+            # Capped at the profile limit (120 deg/s) and the jog limit (60 deg/s).
+            self.assertEqual((speed['move_deg_per_second'],speed['carry_deg_per_second'],speed['jog_deg_per_second']),(120.,60.,60))
+            for bad in [0,20,310,110,100.,True,'100',None]:
+                with self.subTest(bad=bad),self.assertRaises(ValueError): self.bridge.set_arm_speed(bad)
+            self.assertEqual(self.bridge.arm_speed_status()['percent'],300)
+            self.bridge.ARM_SPEED_FILE.write_text('{"percent":999}',encoding='utf-8')
+            self.assertEqual(self.bridge._read_arm_speed(),100)
+
+    def test_arm_speed_change_reaches_a_running_arm_sequence(self):
+        arm = SimpleNamespace(profile=self.bridge._load_profile())
+        with tempfile.TemporaryDirectory() as folder,patch.object(self.bridge.controller,'arm',arm):
+            self.bridge.ARM_SPEED_FILE = Path(folder)/'arm_speed.json'
+            self.bridge.set_arm_speed(50)
+        self.assertEqual((arm.profile.move_speed(False),arm.profile.move_speed(True)),(20.,10.))
+
     def test_cancel_during_pulse_does_not_busy_spin(self):
         controller = self.bridge.controller
         controller.pulse_until = time.monotonic()-1
@@ -255,6 +282,19 @@ class HttpTests(unittest.TestCase):
         with patch.object(self.bridge,'start_mission') as launch:
             self.assertEqual(self.client.post('/dashboard/start',json={'expected_revision':0,'session_id':'previous-boot'}).status_code,409)
         launch.assert_not_called()
+
+    def test_arm_speed_route_validates_and_stays_same_origin(self):
+        with patch.object(self.bridge,'set_arm_speed',return_value={'percent':150}) as change:
+            response = self.client.post('/dashboard/arm-speed',json={'percent':150})
+            self.assertEqual((response.status_code,response.json),(200,{'arm_speed':{'percent':150}}))
+            self.assertEqual(self.client.post('/dashboard/arm-speed',json={'percent':150},headers={'Origin':'https://unrelated.example'}).status_code,403)
+            self.assertEqual(self.client.post('/dashboard/arm-speed',data='150').status_code,415)
+        change.assert_called_once_with(150)
+        with tempfile.TemporaryDirectory() as folder:
+            self.bridge.ARM_SPEED_FILE = Path(folder)/'arm_speed.json'
+            response = self.client.post('/dashboard/arm-speed',json={'percent':999})
+        self.assertEqual(response.status_code,400)
+        self.assertIn('팔 속도',response.json['error'])
 
     def test_stop_uses_whole_mission_cancel(self):
         with patch.object(self.bridge,'cancel') as stop:

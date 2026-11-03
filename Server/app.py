@@ -78,6 +78,23 @@ def dashboard_start():
     return response
 
 
+@app.route('/dashboard/arm-speed', methods=['POST'])
+def dashboard_arm_speed():
+    from flask import jsonify, request
+    from urllib.parse import urlsplit
+    origin = request.headers.get('Origin')
+    if origin and urlsplit(origin).netloc != request.host:
+        return jsonify(error='이 로봇의 웹 화면에서 바꾸세요'), 403
+    if not request.is_json:
+        return jsonify(error='JSON 요청이 필요합니다'), 415
+    body = request.get_json(silent=True)
+    try:
+        result = mission_bridge.set_arm_speed(body.get('percent') if isinstance(body,dict) else None)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(arm_speed=result)
+
+
 @app.route('/dashboard/assets/<filename>')
 def dashboard_asset(filename):
     from flask import abort

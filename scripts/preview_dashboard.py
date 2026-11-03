@@ -48,6 +48,12 @@ attempt = 0
 revision = 0
 SESSION_ID = uuid.uuid4().hex
 mode = 'READY'
+arm_speed = 100
+
+
+def arm_speed_status():
+    return dict(percent=arm_speed,min=25,max=300,step=25,move_deg_per_second=min(120.,40*arm_speed/100),
+                carry_deg_per_second=min(120.,20*arm_speed/100),jog_deg_per_second=max(1,min(60,round(20*arm_speed/100))))
 
 
 def status():
@@ -73,7 +79,7 @@ def status():
                 can_start=started is None or finished,elapsed_seconds=age,
                 session_id=SESSION_ID,control_revision=revision,distance_cm=round(distance,1),remaining_cm=0. if age>=10 else round(max(0.,distance-30.),1),
                 target_distance_cm=30.,distance_source='FINAL' if age>=10 else 'LIVE',
-                camera_online=True,arm_enabled=True,arm_calibrated=True))
+                camera_online=True,arm_enabled=True,arm_calibrated=True,arm_speed=arm_speed_status()))
 
 
 @app.get('/dashboard')
@@ -104,6 +110,18 @@ def start():
             attempt += 1
             revision += 1
         return jsonify(status())
+
+
+@app.post('/dashboard/arm-speed')
+def set_arm_speed():
+    global arm_speed
+    body = request.get_json(silent=True)
+    percent = body.get('percent') if isinstance(body,dict) else None
+    if type(percent) is not int or not 25 <= percent <= 300 or percent % 25:
+        return jsonify(error='팔 속도는 25~300% 사이에서 25% 단위로 정하세요'),400
+    with lock:
+        arm_speed = percent
+        return jsonify(arm_speed=arm_speed_status())
 
 
 @app.post('/mission/stop')

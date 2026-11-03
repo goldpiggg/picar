@@ -4,6 +4,8 @@ import json
 import math
 from pathlib import Path
 
+MAX_ARM_JOG_SPEED = 60  # degrees/second; also caps the dashboard speed scale.
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -69,7 +71,7 @@ class MissionConfig:
     gyro_z_sign: int = 1
     gyro_calibration_seconds: float = 1.5
     # Web ARM/gripper button speed, degrees/second (RPIservo uses whole numbers).
-    arm_jog_speed: int = 10
+    arm_jog_speed: int = 20
 
 
 def load_config(path=None):
@@ -156,8 +158,8 @@ def load_config(path=None):
         raise ValueError('Require 0 < layout_min_gap < 1')
     if number('layout_timeout_seconds') <= 0:
         raise ValueError('layout_timeout_seconds must be positive')
-    if type(cfg.arm_jog_speed) is not int or not 1 <= cfg.arm_jog_speed <= 30:
-        raise ValueError('arm_jog_speed must be an integer from 1 to 30')
+    if type(cfg.arm_jog_speed) is not int or not 1 <= cfg.arm_jog_speed <= MAX_ARM_JOG_SPEED:
+        raise ValueError('arm_jog_speed must be an integer from 1 to %d'%MAX_ARM_JOG_SPEED)
     # Legacy precision settings remain readable for old files; the direct
     # controller does not construct or validate those unused gates.
     return cfg

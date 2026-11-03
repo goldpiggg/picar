@@ -25,10 +25,10 @@ M2_Direction  =  -1
 
 FREQ = 50
 
-# Motor speeds 0..100 mean percent of REFERENCE_VOLTS, not of the battery.
+# Motor speeds 0..100 mean percent of REFERENCE_VOLTS (7 V), not of the battery.
 # The duty cycle is rescaled by the measured battery voltage, so the motors see
 # the same voltage whether the pack is full (8.4 V), nominal or nearly empty.
-REFERENCE_VOLTS = 5.0
+REFERENCE_VOLTS = 7.0
 FALLBACK_BATTERY_VOLTS = 7.4
 
 pwm_motor = None

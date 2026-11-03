@@ -6,15 +6,16 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from picar_mission.config import load_config
+from picar_mission.config import MAX_ARM_JOG_SPEED, load_config
 from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
-from picar_mission.arm_sequence import LAYOUTS, MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_profile, pose_targets, save_pose as save_arm_pose
+from picar_mission.arm_sequence import LAYOUTS, MAX_ARM_SPEED, MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_profile, pose_targets, save_pose as save_arm_pose
 from picar_mission.arm_positions import PositionStore
 from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
 from picar_mission.heading import GyroHeading
 from picar_mission.qr_scan import emit
 from threading import Event, RLock, Thread
+import json
 import time
 import math
 import uuid
@@ -39,10 +40,65 @@ _attempt = 0
 _control_revision = 0
 _position_teaching = False
 SESSION_ID = uuid.uuid4().hex
+# Dashboard arm speed, percent of arm_poses.json and arm_jog_speed. Kept in
+# data/ so it survives a restart without editing the taught pose file.
+ARM_SPEED_FILE = ROOT / 'data' / 'arm_speed.json'
+ARM_SPEED_MIN, ARM_SPEED_MAX, ARM_SPEED_STEP = 25, 300, 25
+
+
+def _read_arm_speed():
+    try:
+        value = json.loads(ARM_SPEED_FILE.read_text(encoding='utf-8')).get('percent')
+    except (OSError,ValueError,AttributeError):
+        return 100
+    return value if type(value) is int and ARM_SPEED_MIN <= value <= ARM_SPEED_MAX else 100
+
+
+_arm_speed_percent = _read_arm_speed()
+
+
+def _load_profile():
+    profile = load_profile()
+    profile.speed_scale = _arm_speed_percent/100.
+    return profile
+
+
+def arm_jog_speed():
+    """Manual ARM button speed in whole degrees/second (RPIservo needs integers)."""
+    return max(1,min(MAX_ARM_JOG_SPEED,round(config.arm_jog_speed*_arm_speed_percent/100)))
+
+
+def arm_speed_status():
+    try:
+        profile = _load_profile()
+        move, carry = profile.move_speed(False), profile.move_speed(True)
+    except (OSError,ValueError,KeyError,TypeError):
+        move = carry = None
+    return dict(percent=_arm_speed_percent,min=ARM_SPEED_MIN,max=ARM_SPEED_MAX,step=ARM_SPEED_STEP,
+                move_deg_per_second=move,carry_deg_per_second=carry,jog_deg_per_second=arm_jog_speed())
+
+
+def set_arm_speed(percent):
+    """Applies from the next arm step or move; a move already running keeps its speed."""
+    global _arm_speed_percent
+    if type(percent) is not int or not ARM_SPEED_MIN <= percent <= ARM_SPEED_MAX or percent % ARM_SPEED_STEP:
+        raise ValueError('팔 속도는 %d~%d%% 사이에서 %d%% 단위로 정하세요'%(ARM_SPEED_MIN,ARM_SPEED_MAX,ARM_SPEED_STEP))
+    with _lock:
+        _arm_speed_percent = percent
+        arm = getattr(controller,'arm',None)
+        if arm is not None:
+            arm.profile.speed_scale = percent/100.
+        try:
+            ARM_SPEED_FILE.parent.mkdir(parents=True,exist_ok=True)
+            ARM_SPEED_FILE.write_text(json.dumps(dict(percent=percent)),encoding='utf-8')
+        except OSError as exc:
+            emit('arm_speed_save_failed',message=str(exc))
+        emit('arm_speed',percent=percent)
+        return arm_speed_status()
 
 
 def _make_controller():
-    arm = ArmSequence(ArmAdapter(_servo),load_profile()) if config.arm_enabled else None
+    arm = ArmSequence(ArmAdapter(_servo),_load_profile()) if config.arm_enabled else None
     return DirectMissionController(config,DriveAdapter(_move,_servo),
         _ultrasound.read_sample,runtime.snapshot,arm_sequence=arm,
         request_layout=runtime.request_layout,
@@ -253,6 +309,7 @@ def _dashboard_status(result):
         arm_enabled=config.arm_enabled,
         control_revision=_control_revision,
         session_id=SESSION_ID,
+        arm_speed=arm_speed_status(),
         arm_calibrated=controller is not None and controller.arm is not None and controller.arm.profile.calibrated)
 
 
@@ -294,7 +351,7 @@ def move_to_pose(name):
         raise ValueError('auto_approach_enabled=false 수동 모드에서만 이동할 수 있습니다')
     if _servo is None:
         raise ValueError('서보가 아직 준비되지 않았습니다')
-    profile = load_profile()
+    profile = _load_profile()
     targets = pose_targets(profile,name)
     return _move_arm_targets(name, targets, profile)
 
@@ -330,7 +387,7 @@ def _move_arm_targets(name, targets, profile, speed=None):
 
 
 def _position_store():
-    return PositionStore(ROOT/'arm_positions.json', limits=load_profile().limits)
+    return PositionStore(ROOT/'arm_positions.json', limits=_load_profile().limits)
 
 
 def position_data():
@@ -339,7 +396,7 @@ def position_data():
             angles=_read_arm_angles(), move=pose_move_status(), preview=False,
             legacy_available=True, control_revision=_control_revision, session_id=SESSION_ID,
             teaching_active=_position_teaching, can_switch_teaching=config.auto_approach_enabled and controller is not None,
-            joint_limits=load_profile().limits, supports_joint_control=True)
+            joint_limits=_load_profile().limits, supports_joint_control=True)
 
 
 def _require_position_teaching():
@@ -365,7 +422,7 @@ def move_to_position(position, pose, expected_revision=None, session_id=None):
             raise ValueError('제어 상태가 바뀌었습니다. 현재 상태를 확인하고 다시 이동하세요')
         targets = _position_store().targets(position, pose)
         _control_revision += 1
-        return _move_arm_targets(position+' / '+pose, targets, load_profile())
+        return _move_arm_targets(position+' / '+pose, targets, _load_profile())
 
 
 def stop_position_move():
@@ -428,14 +485,14 @@ def set_joint_angle(joint, angle, expected_revision=None, session_id=None):
     with _lock:
         _require_position_teaching()
         _check_position_revision(expected_revision, session_id)
-        profile = load_profile()
+        profile = _load_profile()
         if joint not in ('base','shoulder','elbow','gripper'):
             raise ValueError('팔 관절 이름을 확인하세요')
         low, high = profile.limits[joint]
         if type(angle) not in (int,float) or not math.isfinite(angle) or not low <= angle <= high:
             raise ValueError('허용 각도 범위를 확인하세요')
         holding = profile.holding(_read_arm_angles()['gripper'])
-        speed = min(config.arm_jog_speed, profile.move_speed(holding))
+        speed = min(arm_jog_speed(), profile.move_speed(holding))
         _control_revision += 1
         _move_arm_targets('JOINT / '+joint, {joint:float(angle)}, profile, speed=speed)
         return position_data()
@@ -453,7 +510,7 @@ def rehearse(direction, layout):
     if layout not in LAYOUTS:
         raise ValueError('layout must be LEFT_TOP or LEFT_BOTTOM')
     stop_pose_move()
-    sequence = ArmSequence(ArmAdapter(_servo),load_profile())
+    sequence = ArmSequence(ArmAdapter(_servo),_load_profile())
     sequence.start(direction,layout,require_calibration=False)
     stop = Event()
     info = dict(name=direction+' '+layout+' 순서',state='MOVING',error=None,step_index=0,

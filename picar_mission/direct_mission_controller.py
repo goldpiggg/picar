@@ -1,6 +1,6 @@
 """One QR -> settle steering -> slow forward with gyro heading hold -> pulses to target.
 
-Motor power is set in volts and sent as percent of Move.REFERENCE_VOLTS (5 V);
+Motor power is set in volts and sent as percent of Move.REFERENCE_VOLTS (7 V);
 Move.py rescales that by the measured battery, so any charge drives the same.
 Inside pulse_zone_cm the wheels stop; each cycle then lets the car settle,
 takes the median of fresh echoes, and either finishes within the tolerance or
@@ -15,7 +15,7 @@ from .qr_scan import emit
 
 ZONE_SAMPLES = 3          # Fresh echoes whose median must be inside pulse_zone_cm.
 ZONE_EXIT_MARGIN_CM = 2.  # Settled this far beyond the zone: it was a false entry.
-REFERENCE_VOLTS = 5.     # Must match Server/Move.py REFERENCE_VOLTS.
+REFERENCE_VOLTS = 7.     # Must match Server/Move.py REFERENCE_VOLTS.
 
 
 class DirectMissionController(MissionController):
@@ -207,7 +207,7 @@ class DirectMissionController(MissionController):
 
     # -- battery-compensated power and pulse approach ------------------------
     def _set_power(self):
-        """Fix the 5 V-referenced PWM; the battery reading is kept for the status."""
+        """Fix the 7 V-referenced PWM; the battery reading is kept for the status."""
         volts, source = None, 'FALLBACK'
         if self.read_battery is not None:
             try:
@@ -227,7 +227,7 @@ class DirectMissionController(MissionController):
 
     @staticmethod
     def _pwm(motor_volts):
-        # Move.py treats 0..100 as percent of 5 V and compensates the battery.
+        # Move.py treats 0..100 as percent of 7 V and compensates the battery.
         return round(min(100.,100.*motor_volts/REFERENCE_VOLTS),1)
 
     def _begin_settle(self, now):

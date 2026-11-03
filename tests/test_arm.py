@@ -223,16 +223,16 @@ class MotorVoltageTests(unittest.TestCase):
         with patch.dict(sys.modules,modules): spec.loader.exec_module(move)
         return move,created
 
-    def test_speed_is_percent_of_5v_whatever_the_battery(self):
+    def test_speed_is_percent_of_7v_whatever_the_battery(self):
         move,_=self.load_move();move.setup()
-        for battery,throttle in [(8.4,.5*5/8.4),(7.4,.5*5/7.4),(5.,.5),(None,.5*5/7.4),(2.,.5*5/7.4)]:
+        for battery,throttle in [(8.4,.5*7/8.4),(7.4,.5*7/7.4),(7.,.5),(None,.5*7/7.4),(2.,.5*7/7.4)]:
             with self.subTest(battery=battery):
                 move.read_battery=lambda:battery
                 move.Motor(1,1,50)
                 self.assertAlmostEqual(move.motor1.throttle,throttle)
-                # Motor voltage is the same 2.5 V at any measured charge.
-                if battery and battery>=4: self.assertAlmostEqual(move.motor1.throttle*battery,2.5)
-        move.read_battery=lambda:4.5
+                # Motor voltage is the same 3.5 V at any measured charge.
+                if battery and battery>=4: self.assertAlmostEqual(move.motor1.throttle*battery,3.5)
+        move.read_battery=lambda:6.
         move.Motor(1,1,100)
         self.assertEqual(move.motor1.throttle,1.)  # Cannot exceed the pack.
 
@@ -302,10 +302,10 @@ class PoseRecallTests(unittest.TestCase):
 
     def test_profile_carry_speed_is_optional_and_bounded(self):
         profile=load_profile()
-        self.assertEqual(profile.carry_speed,10.)  # Default for profiles without the key.
+        self.assertEqual(profile.carry_speed,20.)  # Default for profiles without the key.
         self.assertTrue(profile.holding(72.));self.assertFalse(profile.holding(108.))
-        self.assertEqual((profile.move_speed(True),profile.move_speed(False)),(10.,20))
-        for carry in [0,25,float('nan')]:
+        self.assertEqual((profile.move_speed(True),profile.move_speed(False)),(20.,40))
+        for carry in [0,45,float('nan')]:
             data=copy.deepcopy(profile.values);data['carry_speed_deg_per_second']=carry
             with self.subTest(carry=carry),self.assertRaises(ValueError): ArmProfile(data)
 
@@ -313,10 +313,10 @@ class PoseRecallTests(unittest.TestCase):
         bridge,servo=self.bridge_with_servo(False)
         servo.nowPos[4]=72.  # Gripper near "closed": an object is held.
         info=bridge.move_to_pose('center_carry');bridge.stop_pose_move()
-        self.assertEqual(info['speed_deg_per_second'],10.)
+        self.assertEqual(info['speed_deg_per_second'],20.)
         servo.nowPos[4]=110.
         info=bridge.move_to_pose('center_clear');bridge.stop_pose_move()
-        self.assertEqual(info['speed_deg_per_second'],20)
+        self.assertEqual(info['speed_deg_per_second'],40)
 
     def test_gripper_slot_moves_only_the_gripper(self):
         self.assertEqual(pose_targets(load_profile(),'gripper_closed'),{'gripper':70})
@@ -468,9 +468,9 @@ class SequenceTests(unittest.TestCase):
             fastest[closed]=max(fastest[closed],moved/.02)
             if s.state=='COMPLETE': break
         self.assertEqual(s.state,'COMPLETE')
-        self.assertLessEqual(fastest[True],10+1e-6)   # carry_speed while holding
-        self.assertLessEqual(fastest[False],20+1e-6)  # speed_deg_per_second otherwise
-        self.assertGreater(fastest[False],10)
+        self.assertLessEqual(fastest[True],20+1e-6)   # carry_speed while holding
+        self.assertLessEqual(fastest[False],40+1e-6)  # speed_deg_per_second otherwise
+        self.assertGreater(fastest[False],20)
 
 
 class HandoffTests(unittest.TestCase):

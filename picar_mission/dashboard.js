@@ -26,6 +26,7 @@
   let startDistance = null, elapsed = 0, timerAt = performance.now(), timerRunning = false;
   let cameraRetryAt = 0, cameraLoaded = false, cameraFailed = false;
   let cameraGeneration = null, cameraWasOnline = false;
+  let armSpeedEditing = false, armSpeedSaving = false;
 
   function feedback(message, error = false) {
     $('action-feedback').textContent = message;
@@ -69,6 +70,7 @@
       $('direction-note').textContent = '실시간 상태 확인 불가';
       $('timer-state').textContent = '연결 끊김';
       timerRunning = false;
+      $('arm-speed').disabled = true;
       renderCamera(false);
     }
     buttons();
@@ -109,6 +111,17 @@
     $('camera-placeholder').querySelector('strong').textContent = '카메라 영상 연결 확인 필요';
     renderCamera(false);
   });
+  function speedText(value) { return typeof value==='number'?`${Math.round(value)}°/s`:'—'; }
+  function renderArmSpeed(speed) {
+    const input = $('arm-speed');
+    input.disabled = !connected || !speed || armSpeedSaving;
+    if (!speed) { $('arm-speed-note').textContent = '속도 설정을 불러올 수 없습니다'; return; }
+    if (!armSpeedEditing && !armSpeedSaving) {
+      input.value = String(speed.percent);
+      $('arm-speed-value').textContent = String(speed.percent);
+    }
+    $('arm-speed-note').textContent = `자세 이동 ${speedText(speed.move_deg_per_second)} · 운반 ${speedText(speed.carry_deg_per_second)} · 버튼 ${speedText(speed.jog_deg_per_second)}`;
+  }
   function renderSteps(data, info, direction) {
     const state = info.state;
     const complete = state === 'COMPLETE';
@@ -186,6 +199,7 @@
     timerRunning = info.started && !info.finished && !TERMINAL.has(state);
     $('timer-state').textContent = info.finished?(state==='COMPLETE'?'기록 종료':'정지됨'):info.started?'측정 중':'시작 대기';
     setConnected(true);
+    renderArmSpeed(info.arm_speed);
     renderCamera(Boolean(info.camera_online));
   }
   async function poll() {
@@ -210,6 +224,24 @@
     else start();
   });
   $('restart-dialog').addEventListener('close',() => { if ($('restart-dialog').returnValue==='start') start(); });
+  $('arm-speed').addEventListener('input',() => {
+    armSpeedEditing = true;
+    $('arm-speed-value').textContent = $('arm-speed').value;
+  });
+  $('arm-speed').addEventListener('change',async() => {
+    const percent = Number($('arm-speed').value);
+    armSpeedSaving = true; $('arm-speed').disabled = true;
+    try {
+      const response = await request('/dashboard/arm-speed','POST',{percent});
+      if (latest?.dashboard) latest.dashboard.arm_speed = response.arm_speed;
+      feedback(`로봇팔 속도를 ${percent}%로 바꿨습니다. 다음 팔 동작부터 적용됩니다.`);
+    }
+    catch (error) { feedback(`팔 속도 변경 실패: ${error.message}`,true); }
+    finally {
+      armSpeedEditing = false; armSpeedSaving = false;
+      renderArmSpeed(latest?.dashboard?.arm_speed);
+    }
+  });
   $('stop').addEventListener('click',async() => {
     if (stopping) return;
     stopping = true; buttons(); feedback('전체 동작을 중지하고 있습니다…');
