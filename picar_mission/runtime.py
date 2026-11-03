@@ -118,6 +118,13 @@ class MissionRuntime:
             if self.stop_event.is_set() or self.data['state'] not in ('DIRECTION_CONFIRMED','WAIT_SIDE_QR') or direction != self.data['first_direction']:
                 return False
             rescanning = self.data['state'] == 'WAIT_SIDE_QR'
+            if rescanning:
+                # A/B order is unchanged by a small yaw scan on the same side.
+                # Keep the gate, queued frame and in-flight decode alive. Only
+                # one-code inference needs to wait for the new view to settle.
+                self.side_settle_seconds = min(.05,self.config.side_qr_settle_seconds)
+                self.side_settled_after = float('inf')
+                return True
             self.scan_epoch += 1
             self.side_settle_seconds = min(.05,self.config.side_qr_settle_seconds) if rescanning else self.config.side_qr_settle_seconds
             self.scan_after = max(self.clock(), not_before)+self.side_settle_seconds
@@ -175,6 +182,7 @@ class MissionRuntime:
             if self._stale(captured_at, decoded=True):
                 return None
             self.data.update(detections=detections,decode_ms=decode_ms,
+                             decoder_backend=getattr(reader,'backend','OPENCV'),
                              layout_preview=classify_layout(detections, self.config.layout_min_gap),
                              frames_processed=self.data['frames_processed']+1,
                              last_frame_time=captured_at)
@@ -189,7 +197,7 @@ class MissionRuntime:
                     self.data.update(state='LAYOUT_CONFIRMED', layout=layout)
             else:
                 start = self.side_gate.update(detections, self.data['side_direction'], captured_at,
-                                              settled=captured_at >= self.side_settled_after)
+                                              settled=settled)
                 self.data.update(side_candidate=self.side_gate.candidate, side_frames=self.side_gate.count)
                 if start:
                     self.data.update(state='SEQUENCE_IDENTIFIED', sequence_selection=sequence_for(start))

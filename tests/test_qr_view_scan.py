@@ -96,7 +96,7 @@ class ViewSearchTests(unittest.TestCase):
                 self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
                 self.assertEqual(h.controller.qr_preparation.state,'INTERRUPTED')
 
-    def test_rescan_rejects_inflight_results_from_the_previous_view(self):
+    def test_same_side_rescan_keeps_inflight_pair_result(self):
         now=[1.];runtime=MissionRuntime(MissionConfig(layout_frames=1),clock=lambda:now[0])
         runtime.data.update(state='DIRECTION_CONFIRMED',first_direction='LEFT')
         runtime.request_side_qr('LEFT',1.);now[0]=2.
@@ -104,8 +104,19 @@ class ViewSearchTests(unittest.TestCase):
             def detect(self,frame):
                 runtime.request_side_qr('LEFT',now[0])
                 return [dict(text='PICK',label='PICK',center_normalized=[.8,.5]),dict(text='PLACE',label='PLACE',center_normalized=[.2,.5])]
-        self.assertIsNone(runtime.process_frame(None,2.,1,Reader()))
-        self.assertIsNone(runtime.snapshot()['sequence_selection'])
+        self.assertEqual(runtime.process_frame(None,2.,1,Reader()),'LEFT-A')
+        self.assertEqual(runtime.snapshot()['sequence_selection']['start_position'],'LEFT-A')
+
+    def test_same_side_rescan_keeps_settled_frame_inference_inflight(self):
+        now=[1.];runtime=MissionRuntime(MissionConfig(layout_frames=1),clock=lambda:now[0])
+        runtime.data.update(state='DIRECTION_CONFIRMED',first_direction='LEFT')
+        runtime.request_side_qr('LEFT',1.);now[0]=2.;runtime.side_view_settled(2.);now[0]=3.
+        class Reader:
+            def detect(self,frame):
+                runtime.request_side_qr('LEFT',now[0])
+                return [dict(text='PICK',label='PICK',center_normalized=[.2,.5]),
+                        dict(text='',label=None,undecoded=True,center_normalized=[.6,.5])]
+        self.assertEqual(runtime.process_frame(None,3.,1,Reader()),'LEFT-B')
 
 
 if __name__=='__main__':unittest.main()

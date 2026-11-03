@@ -82,6 +82,7 @@ commands_apt = [
 "sudo apt-get install python3-gpiozero python3-pigpio",
 "sudo apt-get install -y python3-picamera2",
 "sudo apt-get install -y python3-opencv",
+"sudo apt-get install -y python3-zxing-cpp",
 "sudo apt-get install -y opencv-data",
 "sudo apt-get install -y python3-pyaudio"
 ]

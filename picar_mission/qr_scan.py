@@ -133,13 +133,45 @@ class LayoutGate:
 
 
 class QRReader:
-    def __init__(self, cv2):
+    def __init__(self, cv2, use_zxing=True):
         self.cv2 = cv2
         self.detector = cv2.QRCodeDetector()
         if not hasattr(self.detector, 'detectAndDecodeMulti'):
             raise RuntimeError('OpenCV lacks detectAndDecodeMulti; OpenCV 4.5+ is required.')
         # OpenCV 4.8+ only; reads bent codes the classic detector misses.
         self.aruco = cv2.QRCodeDetectorAruco() if hasattr(cv2, 'QRCodeDetectorAruco') else None
+        self.zxing = None
+        if use_zxing:
+            try:
+                import zxingcpp
+                self.zxing = zxingcpp
+            except (ImportError, OSError):
+                pass
+
+    @property
+    def backend(self):
+        return 'ZXING_CPP+OPENCV' if self.zxing is not None else 'OPENCV'
+
+    def _read_zxing(self, gray):
+        if self.zxing is None:
+            return []
+        import numpy as np
+        try:
+            codes = self.zxing.read_barcodes(gray, formats=self.zxing.BarcodeFormat.QRCode)
+            texts, points = [], []
+            for code in codes:
+                if normalize(code.text) not in ('PICK', 'PLACE'):
+                    continue
+                p = code.position
+                texts.append(code.text)
+                points.append([[v.x,v.y] for v in (p.top_left,p.top_right,p.bottom_right,p.bottom_left)])
+            return self._results(gray,texts,np.asarray(points,dtype=np.float32)) if points else []
+        except Exception as exc:
+            # A missing/incompatible native decoder must not kill the camera
+            # worker. Log once and retain the OpenCV fallback for this reader.
+            emit('qr_decoder_fallback',backend='ZXING_CPP',reason=str(exc))
+            self.zxing = None
+            return []
 
     def detect(self, frame):
         # Multi detection is mandatory: a single-code fallback could conceal
@@ -158,9 +190,19 @@ class QRReader:
         done = self._decided if one_is_enough else self._pair
         cv2 = self.cv2
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+        fast = self._read_zxing(gray)
+        if done(fast):
+            return fast
+        if fast and one_is_enough:
+            locator = self.aruco or self.detector
+            _, boxes = locator.detectMulti(gray)
+            located = self._boxes(gray,['']*len(boxes),boxes) if boxes is not None else []
+            # A second full decode of the same frame adds latency. Once one
+            # label is known, only a distinct neighbouring QR box is needed.
+            return self._with_located(fast,located)
         primary = self.aruco or self.detector
         ok, texts, points, _ = primary.detectAndDecodeMulti(gray)
-        found = self._results(gray, texts, points) if points is not None else []
+        found = self._merge(fast,self._results(gray,texts,points)) if points is not None else fast
         located = self._boxes(gray, texts, points) if points is not None else []
         result = self._with_located(found, located)
         if done(result):
