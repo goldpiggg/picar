@@ -158,11 +158,20 @@ class QRReader:
         still missing, so a clear view costs the same as detect(). After the
         turn one code clearly off center decides (one_is_enough), so the
         search stops there instead of hunting for a code it cannot read.
+
+        A code found but not decoded (a curled sheet) is returned as an
+        `undecoded` entry with its position: after the turn the one decoded
+        code and that box are the two codes of this side.
         """
         done = self._decided if one_is_enough else self._pair
-        found = self.detect(frame)
-        if done(found):
-            return found
+        located = []
+        ok, texts, points, _ = self.detector.detectAndDecodeMulti(frame)
+        found = []
+        if ok and points is not None:
+            found = self._results(frame, texts, points)
+            located += self._boxes(frame, texts, points)
+        if done(self._with_located(found, located)):
+            return self._with_located(found, located)
         cv2 = self.cv2
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
         big = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
@@ -178,17 +187,40 @@ class QRReader:
                 width = image.shape[1]
                 for x0, x1 in ((0, width*6//10), (width*4//10, width)):
                     text, corners, _ = self.detector.detectAndDecode(image[:, x0:x1])
-                    if text and corners is not None:
-                        found = self._merge(found, self._results(image, [text], corners.reshape(1, 4, 2),
-                                                                 scale=scale, x_offset=x0))
+                    if corners is not None:
+                        corners = corners.reshape(1, 4, 2)
+                        found = self._merge(found, self._results(image, [text], corners, scale=scale, x_offset=x0))
+                        located += self._boxes(image, [text], corners, scale=scale, x_offset=x0)
             else:
                 detector = self.aruco if kind == 'aruco' else self.detector
                 ok, texts, points, _ = detector.detectAndDecodeMulti(image)
                 if ok and points is not None:
                     found = self._merge(found, self._results(image, texts, points, scale=scale))
-            if done(found):
-                return found
-        return found
+                    located += self._boxes(image, texts, points, scale=scale)
+            if done(self._with_located(found, located)):
+                break
+        return self._with_located(found, located)
+
+    def _boxes(self, image, texts, points, scale=1, x_offset=0):
+        """Codes located but not decoded, in the original frame's coordinates."""
+        boxes = []
+        for text, corners in zip(texts, points):
+            if text:
+                continue
+            item, = self._results(image, ['?'], corners.reshape(1, 4, 2), scale=scale, x_offset=x_offset)
+            boxes.append(dict(text='', label=None, undecoded=True, corners_px=item['corners_px'],
+                              center_px=item['center_px'], center_normalized=item['center_normalized']))
+        return boxes
+
+    @staticmethod
+    def _with_located(found, located):
+        # A box is a separate code only if no decoded code or earlier box sits there.
+        from .sequence_selection import SAME_CODE_GAP
+        kept = list(found)
+        for box in located:
+            if all(abs(box['center_normalized'][0]-item['center_normalized'][0]) >= SAME_CODE_GAP for item in kept):
+                kept.append(box)
+        return kept
 
     @staticmethod
     def _pair(found):
@@ -196,9 +228,9 @@ class QRReader:
 
     @classmethod
     def _decided(cls, found):
-        from .sequence_selection import SINGLE_CODE_MARGIN
-        return cls._pair(found) or any(item['label'] in ('PICK', 'PLACE') and
-            abs(item['center_normalized'][0]-.5) >= SINGLE_CODE_MARGIN for item in found)
+        from .sequence_selection import classify_side_start
+        # Either side gives the same answer for "is this decidable".
+        return cls._pair(found) or classify_side_start(found, 'LEFT', settled=True) is not None
 
     @staticmethod
     def _merge(found, more):

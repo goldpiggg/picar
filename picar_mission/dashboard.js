@@ -145,7 +145,7 @@
       $('sequence-status').textContent = !online?'연결 확인 필요':state==='SIDE_QR_WAIT'?'PICK·PLACE 인식 중':'인식 대기';
       $('sequence-title').textContent = !online?'로봇 연결을 확인해주세요.':state==='SIDE_QR_WAIT'?'PICK 위치를 판별하고 있어요.':'PICK 위치를 기다리고 있어요.';
       const qr = data?.qr;
-      $('sequence-detail').textContent = !online?'연결이 돌아오면 현재 선택 결과를 다시 확인합니다.':state==='SIDE_QR_WAIT'?qr?.side_candidate?`${qr.side_candidate} 후보 · ${qr.side_frames}프레임 연속 확인 중`:'PICK·PLACE QR 두 개가 함께 보이면 A/B를 판별합니다.':'출발 QR 방향으로 팔을 돌린 뒤 PICK·PLACE QR 두 개를 확인합니다.';
+      $('sequence-detail').textContent = !online?'연결이 돌아오면 현재 선택 결과를 다시 확인합니다.':state==='SIDE_QR_WAIT'?qr?.side_candidate?`${qr.side_candidate} 후보 · ${qr.side_frames}프레임 연속 확인 중`:'PICK·PLACE QR이 함께 보이면 A/B를 판별합니다. 하나가 구겨져 안 읽혀도 위치만 잡히면 됩니다.':'출발 QR 방향으로 팔을 돌린 뒤 PICK·PLACE QR 두 개를 확인합니다.';
     }
   }
   function renderArmSpeed(speed) {

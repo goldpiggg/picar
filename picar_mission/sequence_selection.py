@@ -21,6 +21,8 @@ def sequence_for(start_position):
 
 # A lone code must sit at least this far from the image center to count.
 SINGLE_CODE_MARGIN = .15
+# Codes (or located boxes) closer than this horizontally are the same code.
+SAME_CODE_GAP = .08
 
 
 def classify_side_start(detections, direction, min_gap=.05, settled=False):
@@ -29,14 +31,24 @@ def classify_side_start(detections, direction, min_gap=.05, settled=False):
     Confirmed camera view: RIGHT's A is screen-left, LEFT's A screen-right.
     While the arm turns, image halves and vertical coordinates do not
     identify physical sides, so both codes are required. Once the turn has
-    finished (`settled`), the two spots straddle the image center, and one
-    code clearly on one side is enough: a crumpled sheet often hides the
-    other one from the decoder.
+    finished (`settled`), a crumpled sheet often hides one code from the
+    decoder. Then the one decoded code is compared with the other code's
+    box, located but not decoded (`undecoded`), when exactly one such box
+    is in view; failing that, one code clearly off the image center decides
+    as the two spots straddle the center.
     """
     if direction not in ('LEFT', 'RIGHT'):
         return None
-    codes = {}
+    codes, boxes = {}, []
     for item in detections:
+        if item.get('undecoded'):
+            try:
+                x = item['center_normalized'][0]
+            except (KeyError, IndexError, TypeError):
+                continue
+            if type(x) in (int, float) and math.isfinite(x) and 0 <= x <= 1:
+                boxes.append(x)
+            continue
         label = normalize(item.get('text', ''))
         if label not in ('PICK', 'PLACE'):
             continue
@@ -55,9 +67,14 @@ def classify_side_start(detections, direction, min_gap=.05, settled=False):
         pick_right = codes['PICK'] > codes['PLACE']
     elif settled and len(codes) == 1:
         (label, x), = codes.items()
-        if abs(x-.5) < SINGLE_CODE_MARGIN:
+        others = [b for b in boxes if abs(b-x) >= SAME_CODE_GAP]
+        if len(others) == 1:
+            # The located box is the other code of this side.
+            pick_right = (x > others[0]) == (label == 'PICK')
+        elif abs(x-.5) < SINGLE_CODE_MARGIN:
             return None
-        pick_right = (x > .5) == (label == 'PICK')
+        else:
+            pick_right = (x > .5) == (label == 'PICK')
     else:
         return None
     row = 'A' if pick_right == (direction == 'LEFT') else 'B'

@@ -74,6 +74,38 @@ class CrumpledSheetTests(unittest.TestCase):
         self.assertEqual(classify_side_start(found, 'RIGHT', settled=True), 'RIGHT-A')
 
 
+    def test_unread_place_box_next_to_a_centered_pick_decides(self):
+        # PICK near the center, PLACE on a curled sheet: located, never decoded.
+        from picar_mission.qr_scan import QRReader
+        found = QRReader(cv2).detect_side(cv2.imread(str(FIXTURES/'side_place_unread.png')), one_is_enough=True)
+        self.assertEqual(classify_side_start(found, 'LEFT', settled=True), 'LEFT-B')
+        self.assertIsNone(classify_side_start(found, 'LEFT'))  # Never while turning.
+
+    def test_pick_alone_at_the_center_stays_undecided(self):
+        from picar_mission.qr_scan import QRReader
+        found = QRReader(cv2).detect_side(cv2.imread(str(FIXTURES/'side_pick_only.png')), one_is_enough=True)
+        self.assertIsNone(classify_side_start(found, 'LEFT', settled=True))
+
+
+class LocatedBoxTests(unittest.TestCase):
+    def code(self, label, x):
+        return dict(text=label, label=label, center_normalized=[x, .5])
+
+    def box(self, x):
+        return dict(text='', label=None, undecoded=True, center_normalized=[x, .5])
+
+    def test_one_located_box_is_the_other_code(self):
+        self.assertEqual(classify_side_start([self.code('PICK', .45), self.box(.77)], 'LEFT', settled=True), 'LEFT-B')
+        self.assertEqual(classify_side_start([self.code('PICK', .55), self.box(.2)], 'LEFT', settled=True), 'LEFT-A')
+        self.assertEqual(classify_side_start([self.code('PLACE', .5), self.box(.3)], 'RIGHT', settled=True), 'RIGHT-A')
+
+    def test_box_on_the_decoded_code_or_several_boxes_do_not_count(self):
+        self.assertIsNone(classify_side_start([self.code('PICK', .45), self.box(.48)], 'LEFT', settled=True))
+        self.assertIsNone(classify_side_start([self.code('PICK', .45), self.box(.2), self.box(.8)], 'LEFT', settled=True))
+        # With two boxes it falls back to the off-center rule.
+        self.assertEqual(classify_side_start([self.code('PICK', .2), self.box(.5), self.box(.8)], 'LEFT', settled=True), 'LEFT-B')
+
+
 class SingleCodeTests(unittest.TestCase):
     def code(self, label, x):
         return [dict(text=label, label=label, center_normalized=[x, .5])]
