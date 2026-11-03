@@ -28,6 +28,9 @@ class QrPreparation:
         self.target = None
         self.started_at = None
         self.scan_targets = []
+        self.pitch_origin = None
+        self.pitch_targets = None
+        self.scan_axis = None
 
     def targets(self, direction):
         if direction not in ('LEFT', 'RIGHT'):
@@ -51,6 +54,9 @@ class QrPreparation:
         self.driver.hold()
         self.direction, self.target = direction, targets['base']
         self.elbow_target = targets.get('elbow')
+        self.pitch_origin = self.driver.read_angles()['elbow'] if self.elbow_target is None else self.elbow_target
+        self.pitch_targets = None
+        self.scan_axis = 'BASE_ELBOW'
         speed = self.speed() if callable(self.speed) else self.speed
         self.move = PoseMove(self.driver, targets, speed, clock=lambda: now)
         self.started_at = now
@@ -66,9 +72,38 @@ class QrPreparation:
         if self.state != 'READY' or not self.scan_targets:
             raise RuntimeError('QR_SCAN_NOT_READY')
         self.target = self.scan_targets.pop(0)
+        self.scan_axis = 'BASE'
         speed = self.speed() if callable(self.speed) else self.speed
         # Change yaw only: do not apply the elbow offset again on each scan.
         self.move = PoseMove(self.driver, {'base':self.target}, speed, clock=lambda:now)
+        self.started_at, self.state = now, 'MOVING'
+
+    def next_pitch_target(self, detections=()):
+        if self.pitch_targets is None:
+            known = [item for item in detections if item.get('label') in ('PICK','PLACE')]
+            if len(known) != 1:
+                return None
+            from .sequence_selection import classify_side_start
+            if classify_side_start(detections,self.direction,settled=True) is not None:
+                return None  # A readable code plus its neighbour already suffices.
+            center = known[0].get('center_normalized')
+            if not center or len(center) != 2 or not number(center[1]) or not 0 <= center[1] <= 1:
+                return None
+            # Code near the top: look up first so it moves down in the image.
+            offsets = (8.,-8.) if center[1] < .5 else (-8.,8.)
+            low, high = self.profile.limits['elbow']
+            self.pitch_targets = list(dict.fromkeys(max(low,min(high,self.pitch_origin+offset)) for offset in offsets))
+            self.pitch_targets = [value for value in self.pitch_targets if value != self.pitch_origin]
+        return self.pitch_targets[0] if self.pitch_targets else None
+
+    def scan_pitch(self, now):
+        if self.state != 'READY' or not self.pitch_targets:
+            raise RuntimeError('QR_PITCH_SCAN_NOT_READY')
+        self.elbow_target = self.pitch_targets.pop(0)
+        self.scan_axis = 'ELBOW'
+        speed = self.speed() if callable(self.speed) else self.speed
+        # Leave BASE, shoulder and gripper at their current angles.
+        self.move = PoseMove(self.driver,{'elbow':self.elbow_target},speed,clock=lambda:now)
         self.started_at, self.state = now, 'MOVING'
 
     def tick(self, now):
@@ -91,7 +126,7 @@ class QrPreparation:
 
     def snapshot(self):
         return dict(state=self.state, direction=self.direction, base_target_deg=self.target,
-                    elbow_target_deg=self.elbow_target)
+                    elbow_target_deg=self.elbow_target,scan_axis=self.scan_axis)
 
 
 class ArmReset(QrPreparation):

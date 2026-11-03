@@ -64,6 +64,66 @@ class ViewSearchTests(unittest.TestCase):
         h.controller.step()
         self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
 
+    def test_single_code_triggers_pitch_before_yaw_then_success_stops_search(self):
+        for y,expected in ((.2,78.),(.8,62.)):
+            h,driver=self.make();base=driver.angles['base'];wheels=len(h.drive.commands)
+            h.qr['detections']=[dict(text='PICK',label='PICK',center_normalized=[.7,y])]
+            h.time=h.controller.view_scan_next
+            h.controller.step()
+            self.assertEqual(h.controller.snapshot()['state'],'QR_SCAN_MOVING')
+            self.assertEqual(h.controller.qr_preparation.elbow_target,expected)
+            for _ in range(40):
+                h.echo(None,dt=.02)
+                if h.controller.snapshot()['state']=='SIDE_QR_WAIT':break
+            self.assertEqual(driver.angles['base'],base)
+            self.assertEqual(driver.angles['elbow'],expected)
+            self.assertEqual(driver.angles['shoulder'],90.)
+            self.assertEqual(driver.angles['gripper'],90.)
+            h.qr['sequence_selection']={'start_position':'LEFT-B'}
+            h.controller.step()
+            self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
+            self.assertTrue(all(c[0]=='stop' for c in h.drive.commands[wheels:]))
+
+    def test_pitch_attempts_are_relative_bounded_and_clamped(self):
+        for origin in (70.,0.,189.):
+            h,driver=self.make();prep=h.controller.qr_preparation
+            prep.pitch_origin=origin
+            driver.angles['elbow']=origin
+            code=[dict(text='PICK',label='PICK',center_normalized=[.7,.2])]
+            targets=[]
+            for attempt in range(3):
+                target=prep.next_pitch_target(code)
+                if target is None:break
+                targets.append(target)
+                start=10.+attempt*2
+                prep.scan_pitch(start)
+                for tick in range(1,101):prep.tick(start+tick*.02)
+            self.assertLessEqual(len(targets),2)
+            self.assertTrue(all(0<=t<=189 and abs(t-origin)<=8 for t in targets))
+            self.assertIsNone(prep.next_pitch_target(code))
+
+    def test_decidable_pair_does_not_trigger_pitch(self):
+        h,_=self.make();prep=h.controller.qr_preparation
+        code=dict(text='PICK',label='PICK',center_normalized=[.7,.2])
+        for other in (dict(text='PLACE',label='PLACE',center_normalized=[.2,.2]),
+                      dict(text='',label=None,undecoded=True,center_normalized=[.2,.2])):
+            self.assertIsNone(prep.next_pitch_target([code,other]))
+        self.assertIsNone(prep.pitch_targets)
+
+    def test_pitch_timeout_and_cancel_prevent_further_arm_motion(self):
+        for cancel in (False,True):
+            h,driver=self.make()
+            h.qr['detections']=[dict(text='PICK',label='PICK',center_normalized=[.7,.2])]
+            h.time=h.controller.view_scan_next;h.controller.step()
+            if cancel:h.controller.cancel('WEB_STOP')
+            else:
+                h.time=h.controller.view_scan_started+h.controller.cfg.qr_scan_timeout_seconds+.61
+                h.controller.step()
+                self.assertIn('QR_VIEW_NOT_FOUND',h.controller.snapshot()['error'])
+            before=list(driver.writes)
+            for _ in range(100):h.echo(None,dt=.02)
+            self.assertEqual(driver.writes,before)
+
     def test_confirmed_result_wins_over_deadline_in_both_scan_states(self):
         for state in ('SIDE_QR_WAIT','QR_SCAN_MOVING'):
             h,_=self.make()

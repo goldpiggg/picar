@@ -173,11 +173,17 @@ class DirectMissionController(MissionController):
                     raise RuntimeError('QR_VIEW_NOT_FOUND: QR 시야 확보 실패')
                 if now-self.view_scan_started >= self.cfg.qr_scan_timeout_seconds:
                     return  # Keep the final view and scan epoch while decoding.
-                if now >= self.view_scan_next and self.qr_preparation.next_scan_target() is not None:
+                if now >= self.view_scan_next:
+                    pitch = self.qr_preparation.next_pitch_target(self.qr_snapshot().get('detections',[]))
+                    if pitch is None and self.qr_preparation.next_scan_target() is None:
+                        return
                     # A decoded result may arrive during this check. Never erase
                     # a confirmed selection to move the camera again.
                     if self.request_side_qr(self.data['first_direction'],now):
-                        self.qr_preparation.scan(now)
+                        if pitch is not None:
+                            self.qr_preparation.scan_pitch(now)
+                        else:
+                            self.qr_preparation.scan(now)
                         self.data.update(arm_motion_enabled=True,automatic_motion_enabled=True)
                         self._state('QR_SCAN_MOVING',now)
         elif self.data['state']=='ARM_TRANSFER':
