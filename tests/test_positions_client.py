@@ -6,6 +6,12 @@ import unittest
 
 
 class PositionClientTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('node'), 'Node is needed for the pose recall flow check')
+    def test_recall_adjust_and_resave_flow(self):
+        result = subprocess.run([shutil.which('node'), str(Path(__file__).with_name('positions_recall.cjs'))],
+            capture_output=True,text=True,encoding='utf-8',timeout=15)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
     @unittest.skipUnless(shutil.which('node'), 'Node is needed for the browser request race check')
     def test_stop_cancels_a_recall_still_waiting_for_preview_angles(self):
         result = subprocess.run([shutil.which('node'), str(Path(__file__).with_name('positions_client_stop.cjs'))],
