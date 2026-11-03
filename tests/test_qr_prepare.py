@@ -57,6 +57,15 @@ class PreparationSettingsTests(unittest.TestCase):
         cfg=load_config()
         self.assertEqual((cfg.qr_prepare_left_base_deg,cfg.qr_prepare_right_base_deg),(165.,7.))
         self.assertTrue(cfg.arm_enabled)
+        self.assertEqual(cfg.qr_prepare_right_base_offset_deg,-10.)
+
+    def test_invalid_right_view_offsets_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'settings.json'
+            for value in (True,'-10',float('nan'),float('inf'),-31,31):
+                with self.subTest(value=value),self.assertRaises(ValueError):
+                    path.write_text(json.dumps({'qr_prepare_right_base_offset_deg':value}),encoding='utf-8')
+                    load_config(path)
 
     def test_invalid_turn_targets_and_delay_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -89,6 +98,25 @@ class PreparationSettingsTests(unittest.TestCase):
 
 
 class ProductionPreparationTests(unittest.TestCase):
+    def test_right_view_offset_uses_taught_average_and_clamps_without_changing_poses(self):
+        from test_position_transfer import taught
+        for a,b,offset,expected in ((26.,3.,-10.,4.5),(3.,3.,-10.,0.),(188.,189.,10.,189.)):
+            bridge=load_bridge()
+            bridge.config=replace(bridge.config,arm_enabled=True,qr_prepare_right_base_offset_deg=offset)
+            data=taught()
+            data['positions']['RIGHT-A']['approach']['angles_deg']['base']=a
+            data['positions']['RIGHT-B']['approach']['angles_deg']['base']=b
+            original=copy.deepcopy(data)
+            bridge._servo=SimpleNamespace(nowPos=[90.]*8)
+            bridge._move=SimpleNamespace(motorStop=lambda:None)
+            bridge._ultrasound=SimpleNamespace(read_sample=lambda:None)
+            with patch.object(bridge,'_position_store',return_value=SimpleNamespace(read=lambda:data)):
+                controller=bridge._make_controller()
+            self.assertEqual(controller.qr_preparation.base_targets['RIGHT'],expected)
+            left=sum(data['positions']['LEFT-'+row]['approach']['angles_deg']['base'] for row in ('A','B'))/2
+            self.assertEqual(controller.qr_preparation.base_targets['LEFT'],left)
+            self.assertEqual(data,original)
+
     def test_existing_speed_setting_applies_at_turn_start_without_retiming_a_running_turn(self):
         bridge=load_bridge()
         self.addCleanup(bridge.shutdown)
@@ -153,8 +181,8 @@ class ProductionPreparationTests(unittest.TestCase):
         self.assertFalse(status['dashboard']['finished'])
         self.assertEqual(status['dashboard']['remaining_cm'],0.)
         self.assertEqual(status['dashboard']['distance_source'],'FINAL')
-        # RIGHT turns BASE to 7 and lowers the elbow 30 degrees to see both codes.
-        self.assertEqual(servo.nowPos[1:5],[7.,81.,73.,145.])
+        # RIGHT fallback 7 minus viewing offset 10 clamps to BASE 0.
+        self.assertEqual(servo.nowPos[1:5],[0.,81.,73.,145.])
         self.assertEqual({channel for channel,angle in writes},{1,3})
         self.assertEqual(status['qr_preparation']['elbow_target_deg'],73.)
         self.assertIsNone(controller.arm)

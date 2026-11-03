@@ -414,7 +414,7 @@ class RehearsalTests(unittest.TestCase):
         self.assertIsNone(bridge.controller.arm)
         self.assertIsNotNone(bridge.controller.qr_preparation)
         self.assertEqual(bridge.controller.qr_preparation.state,'IDLE')
-        self.assertEqual(bridge.controller.qr_preparation.base_targets,{'LEFT':165.,'RIGHT':7.})
+        self.assertEqual(bridge.controller.qr_preparation.base_targets,{'LEFT':165.,'RIGHT':0.})
         self.assertIsNone(bridge.controller.request_layout)
 
 
