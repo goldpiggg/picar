@@ -8,7 +8,7 @@
 
 제조사 코드 전체와 QR·주행·팔 모듈을 포함합니다. **실행 파일은 기존 `Server/WebServer.py`입니다. 새 main.py는 없습니다.**
 
-기본 동작은 **LEFT/RIGHT QR 1회 인식 → 조향 정렬 → 배터리 보정된 느린 속도로 직진(자이로 방향 유지) → 38cm에서 브레이크 → 펄스로 조금씩 움직여 30cm ±1cm에 정지 → BASE만 해당 방향으로 90° 회전 → 대기**입니다. 중앙 BASE 90° 기준 LEFT는 0°, RIGHT는 180°입니다. PICK·PLACE QR을 보기 위한 준비까지만 실행하며 자동 운반은 시작하지 않습니다. [QR 보기 준비 안내](docs/QR_PREPARATION.md)를 참고하세요.
+기본 동작은 **LEFT/RIGHT QR 1회 인식 → 조향 정렬 → 배터리 보정된 느린 속도로 직진(자이로 방향 유지) → 38cm에서 브레이크 → 펄스로 조금씩 움직여 30cm ±1cm에 정지 → BASE만 해당 방향으로 90° 회전 → 대기**입니다. 중앙 BASE 90° 기준 LEFT는 180°, RIGHT는 0°입니다(각도가 커지면 왼쪽). PICK·PLACE QR을 보기 위한 준비까지만 실행하며 자동 운반은 시작하지 않습니다. [QR 보기 준비 안내](docs/QR_PREPARATION.md)를 참고하세요.
 
 ## 자주 바꾸는 설정 4개
 
@@ -129,8 +129,8 @@ sudo python3 Server/WebServer.py
 | `direct_distance_max_age_seconds` | 0.5 | 사용 가능한 현재 거리값의 최대 나이 |
 | `direct_distance_retry_seconds` | 3.0 | 측정 실패 때 멈춘 채 재측정하는 시간(주행 중, 펄스 후 측정 모두) |
 | `arm_start_delay_seconds` | 1.0 | 바퀴 잠금 후 BASE 회전 전 대기, 임시값 |
-| `qr_prepare_left_base_deg` | 0.0 | LEFT QR 후 BASE 절대 목표각(중앙 90°에서 왼쪽 90°) |
-| `qr_prepare_right_base_deg` | 180.0 | RIGHT QR 후 BASE 절대 목표각(중앙 90°에서 오른쪽 90°) |
+| `qr_prepare_left_base_deg` | 180.0 | LEFT QR 후 BASE 절대 목표각(중앙 90°에서 왼쪽 90°) |
+| `qr_prepare_right_base_deg` | 0.0 | RIGHT QR 후 BASE 절대 목표각(중앙 90°에서 오른쪽 90°) |
 | `layout_frames` | 3 | 박스 배치가 같은 결과로 연속 몇 프레임 나와야 확정할지 |
 | `layout_min_gap` | 0.05 | 위/아래로 구분할 QR 중심 높이 차이의 최소값(화면 높이 비율) |
 | `layout_timeout_seconds` | 5.0 | 박스 배치를 기다리는 최대 시간. 넘으면 팔을 움직이지 않고 `ERROR` |

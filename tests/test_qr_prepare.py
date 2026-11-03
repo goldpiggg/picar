@@ -18,7 +18,7 @@ from test_dashboard import load_bridge
 class PreparationSettingsTests(unittest.TestCase):
     def test_defaults_are_ninety_degrees_either_side_of_center(self):
         cfg=load_config()
-        self.assertEqual((cfg.qr_prepare_left_base_deg,cfg.qr_prepare_right_base_deg),(0.,180.))
+        self.assertEqual((cfg.qr_prepare_left_base_deg,cfg.qr_prepare_right_base_deg),(180.,0.))
         self.assertFalse(cfg.arm_enabled)
 
     def test_invalid_turn_targets_and_delay_are_rejected(self):
@@ -115,7 +115,7 @@ class ProductionPreparationTests(unittest.TestCase):
         self.assertTrue(status['dashboard']['finished'])
         self.assertEqual(status['dashboard']['remaining_cm'],0.)
         self.assertEqual(status['dashboard']['distance_source'],'FINAL')
-        self.assertEqual(servo.nowPos[1:5],[180.,81.,103.,145.])
+        self.assertEqual(servo.nowPos[1:5],[0.,81.,103.,145.])  # RIGHT turns BASE down to 0.
         self.assertEqual({channel for channel,angle in writes},{1})
         self.assertIsNone(controller.arm)
         self.assertTrue(all(command[0]=='stop' for command in wheels[last_wheel:]))
