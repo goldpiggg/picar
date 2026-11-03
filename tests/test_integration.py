@@ -48,7 +48,7 @@ class ConfigTests(unittest.TestCase):
             path=Path(directory)/'config.json'
             path.write_text(json.dumps(dict(target_distance_cm=60.,pulse_zone_cm=70.,slow_distance_cm=5.,
                 distance_filter_size='unused',stop_samples=None,stop_timeout_seconds=0.,
-                arm_start_delay_seconds='unused',
+                arm_start_delay_seconds=1.,
                 direct_steer_preload_seconds=0.,direct_steer_settle_seconds=0.)))
             cfg=load_config(path)
         drive=Drive()

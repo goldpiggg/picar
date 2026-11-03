@@ -1,7 +1,7 @@
 'use strict';
 (() => {
   const $ = id => document.getElementById(id);
-  const TERMINAL = new Set(['STOPPED_WAIT','COMPLETE','CANCELLED','ERROR','DISABLED']);
+  const TERMINAL = new Set(['STOPPED_WAIT','QR_VIEW_READY','COMPLETE','CANCELLED','ERROR','DISABLED']);
   const COPY = {
     READY: ['시작 준비 완료','준비됐나요? 이제 미션을 시작하세요.','출발선에 차와 물체를 배치한 뒤 시작 버튼을 눌러주세요.'],
     INITIALIZING: ['준비 중','로봇을 준비하고 있어요','카메라와 제어 장치의 초기화를 기다리고 있습니다.'],
@@ -13,10 +13,12 @@
     WAIT_DISTANCE: ['거리 재측정','잠시 멈추고 거리를 다시 확인해요.','유효한 초음파 측정값이 돌아올 때까지 바퀴를 멈춥니다.'],
     PULSE_SETTLE: ['정밀 접근','정지 위치를 정밀하게 맞추고 있어요.','멈춘 상태에서 측정한 거리로 다음 이동을 결정합니다.'],
     PULSING: ['정밀 접근','조금씩 움직여 정지선에 맞추고 있어요.','짧은 전진·후진 펄스로 목표 거리까지 조절합니다.'],
-    ARM_WAIT: ['팔 동작 준비','정지 완료. 물체 운반을 준비해요.','바퀴를 잠근 상태로 안정 대기 후 박스 배치를 확인합니다.'],
+    ARM_WAIT: ['QR 확인 준비','정지 완료. 팔 회전을 준비해요.','바퀴를 잠근 상태로 안정 대기한 뒤 QR 방향으로 BASE만 돌립니다.'],
+    QR_TURNING: ['팔 회전 중','PICK·PLACE QR을 볼 방향으로 돌고 있어요.','BASE만 회전합니다. 도착하면 그 자세에서 대기합니다.'],
+    QR_VIEW_READY: ['QR 확인 준비 완료','팔 방향을 맞췄어요. 다음 단계를 기다립니다.','PICK·PLACE QR을 볼 준비가 됐습니다. 자동 집기·놓기는 시작하지 않습니다.'],
     LAYOUT_WAIT: ['배치 확인 중','물체가 어느 대각선에 있는지 보고 있어요.','PICK/PLACE QR로 배치를 확정한 뒤 팔을 움직입니다. 확정하지 못하면 팔을 움직이지 않습니다.'],
     ARM_TRANSFER: ['물체 운반 중','저장한 자세로 물체를 옮기고 있어요.','차체를 정지한 채 지정한 순서대로 두 물체를 운반합니다.'],
-    STOPPED_WAIT: ['주행 완료','정지선에 도착했어요.','팔 자동 동작이 비활성 상태이거나 자세 보정이 확인되지 않아 정지해 있습니다.'],
+    STOPPED_WAIT: ['주행 완료','정지선에 도착했어요.','팔 회전 준비 상태를 확인할 때까지 정지해 있습니다.'],
     COMPLETE: ['미션 완료','두 물체 운반 순서를 완료했어요.','경과 시간 기록을 종료했습니다. 실제 물체가 옮겨졌는지 확인해주세요.'],
     CANCELLED: ['중지됨','미션을 중지했어요.','차와 물체를 출발 위치로 옮긴 뒤 새 미션을 시작할 수 있습니다.'],
     ERROR: ['오류 발생','미션이 중단됐어요.','아래 오류 내용을 확인하고 원인을 해결한 뒤 다시 시작해주세요.'],
@@ -130,14 +132,15 @@
     if (data.target_stop_latched) { done = 2; active = 3; }
     if ((data.arm?.completed_transfers || 0) >= 1) { done = 3; active = 4; }
     if (complete) { done = 5; active = 0; }
-    const blocked = state === 'STOPPED_WAIT';
+    const preparing = ['ARM_WAIT','QR_TURNING','QR_VIEW_READY'].includes(state);
+    const blocked = state === 'STOPPED_WAIT' || preparing;
     const failed = state === 'ERROR' || state === 'CANCELLED';
     document.querySelectorAll('[data-stage]').forEach(item => {
       const stage = Number(item.dataset.stage);
       const isDone = stage <= done, isActive = stage === active && !blocked;
       item.className = isDone?'done':isActive?(failed?'failed':'active'):'';
       item.querySelector('.step-number').textContent = isDone?'✓':String(stage).padStart(2,'0');
-      item.querySelector('.step-status').textContent = isDone?'완료':(stage===3 && blocked)?'팔 동작 비활성':isActive?(failed?'중단':'진행 중'):'대기';
+      item.querySelector('.step-status').textContent = isDone?'완료':(stage===3 && blocked)?(state==='QR_VIEW_READY'?'QR 확인 대기':preparing?'QR 확인 준비 중':'팔 회전 대기'):isActive?(failed?'중단':'진행 중'):'대기';
     });
     $('step-counter').textContent = `${done} / 5`;
     if (direction) {
@@ -175,7 +178,7 @@
     $('qr-note').textContent = direction?'출발 QR 방향이 확정됐어요':info.started?'LEFT 또는 RIGHT QR을 보여주세요':'시작 후 QR을 인식합니다';
     $('direction').textContent = direction || '—';
     $('direction').className = 'metric-value direction'+(direction?' '+direction.toLowerCase():'');
-    $('direction-note').textContent = direction?`${direction==='LEFT'?'왼쪽':'오른쪽'} 물체부터 이동`:'LEFT / RIGHT QR 대기';
+    $('direction-note').textContent = direction?`${direction==='LEFT'?'왼쪽':'오른쪽'} PICK·PLACE QR 확인 준비`:'LEFT / RIGHT QR 대기';
     $('camera-direction').textContent = direction?`QR ${direction} ✓`:'QR 대기';
     const distance = typeof info.distance_cm==='number' && Number.isFinite(info.distance_cm)?info.distance_cm:null;
     $('distance').textContent = distance===null?'—':distance.toFixed(1);
@@ -193,11 +196,11 @@
     $('track-car').style.left = `${progress}%`;
     $('approach-progress').setAttribute('aria-valuenow',String(Math.round(progress)));
     $('track-label').textContent = data.target_stop_latched?'정지선 도착':!info.started?'출발 대기':distance===null?'측정 대기':`남은 거리 ${Number(info.remaining_cm).toFixed(1)} cm`;
-    $('arm-note').textContent = !info.arm_enabled?'팔 자동 동작 꺼짐 · 이번 미션은 주행·정지까지 실행합니다.':!info.arm_calibrated?'팔 자세 보정 미확인 · 주행·정지까지만 실행합니다.':'팔 자동 동작 켜짐 · 저장한 자세로 두 물체를 운반합니다.';
+    $('arm-note').textContent = info.arm_mode==='qr_prepare_only'?'정지 후 BASE만 좌우 90° 회전 · QR을 볼 준비 후 대기합니다.':!info.arm_enabled?'팔 자동 동작 꺼짐 · 이번 미션은 주행·정지까지 실행합니다.':!info.arm_calibrated?'팔 자세 보정 미확인 · 주행·정지까지만 실행합니다.':'팔 자동 동작 켜짐 · 저장한 자세로 두 물체를 운반합니다.';
     renderSteps(data,info,direction);
     elapsed = info.elapsed_seconds || 0; timerAt = performance.now();
     timerRunning = info.started && !info.finished && !TERMINAL.has(state);
-    $('timer-state').textContent = info.finished?(state==='COMPLETE'?'기록 종료':'정지됨'):info.started?'측정 중':'시작 대기';
+    $('timer-state').textContent = state==='QR_VIEW_READY'?'준비 완료 · 대기':info.finished?(state==='COMPLETE'?'기록 종료':'정지됨'):info.started?'측정 중':'시작 대기';
     setConnected(true);
     renderArmSpeed(info.arm_speed);
     renderCamera(Boolean(info.camera_online));

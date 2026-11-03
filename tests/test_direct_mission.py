@@ -284,65 +284,97 @@ class DirectTests(unittest.TestCase):
             h.echo(80.)
             self.assertEqual(h.drive.commands,commands)
 
-    def test_arm_wait_ignores_distance_band_and_starts_after_delay(self):
-        h=Harness()
-        h.controller.cfg=replace(h.controller.cfg,arm_enabled=True)
-        requests=[];h.controller.request_layout=lambda:requests.append(h.time)
+    def prepare(self, direction='LEFT', arm_enabled=False):
+        from picar_mission.qr_prepare import QrPreparation
+        h=Harness(direction)
+        h.controller.cfg=replace(h.controller.cfg,arm_enabled=arm_enabled)
         driver=test_arm.FakeArm()
-        h.controller.arm=test_arm.ArmSequence(driver,test_arm.calibrated_profile(),clock=lambda:h.time)
+        driver.angles.update(shoulder=81.,elbow=103.,gripper=145.)
+        h.controller.qr_preparation=QrPreparation(driver,test_arm.load_profile(),
+            {'LEFT':0.,'RIGHT':180.},10.)
+        return h,driver
+
+    def test_base_turn_waits_for_verified_stop_and_delay(self):
+        h,driver=self.prepare()
+        requests=[];h.controller.request_layout=lambda:requests.append(h.time)
         h.echo(80.);h.near(36.)
+        self.assertEqual(driver.writes,[])
         self.assertEqual(h.settle(30.)['state'],'ARM_WAIT')
         self.assertEqual(h.drive.commands[-1],('stop',0))
         self.assertFalse(h.controller.snapshot()['arm_motion_enabled'])
         self.assertEqual(h.echo(34.,dt=.99)['state'],'ARM_WAIT')
         self.assertEqual(driver.writes,[])
+        self.assertEqual(h.echo(None,dt=.02)['state'],'QR_TURNING')
+        self.assertEqual(h.echo(None,dt=.1)['state'],'QR_TURNING')
+        self.assertTrue(driver.writes)
         self.assertEqual(requests,[])
-        # After the delay the camera is asked for the box layout first.
-        self.assertEqual(h.echo(None,dt=.02)['state'],'LAYOUT_WAIT')
-        self.assertEqual(h.echo(None,dt=.5)['state'],'LAYOUT_WAIT')
-        self.assertEqual((len(requests),driver.writes),(1,[]))
-        h.qr.update(state='LAYOUT_CONFIRMED',layout='LEFT_BOTTOM')
-        self.assertEqual(h.echo(None,dt=.02)['state'],'ARM_TRANSFER')
-        self.assertEqual(h.controller.arm.state,'MOVING')
-        self.assertEqual(h.controller.arm.steps[1]['pose'],'left_bottom_above')
-        self.assertEqual(len(requests),1)
 
-    def test_missing_layout_or_camera_error_stops_before_the_arm(self):
-        for qr_state,error in [('WAIT_LAYOUT','LAYOUT_NOT_DETECTED'),('ERROR','QR_CAMERA_ERROR: lost')]:
-            with self.subTest(qr_state=qr_state):
-                h=Harness()
-                h.controller.cfg=replace(h.controller.cfg,arm_enabled=True,arm_start_delay_seconds=0.)
-                driver=test_arm.FakeArm()
+    def test_only_base_turns_then_waits_even_when_transfer_is_enabled(self):
+        for direction,goal in [('LEFT',0.),('RIGHT',180.)]:
+            with self.subTest(direction=direction):
+                h,driver=self.prepare(direction,arm_enabled=True)
+                # A ready layout and calibrated transfer plan must never run.
+                h.qr.update(state='LAYOUT_CONFIRMED',layout='LEFT_TOP')
                 h.controller.arm=test_arm.ArmSequence(driver,test_arm.calibrated_profile(),clock=lambda:h.time)
                 h.echo(80.);h.near(36.);h.settle(30.)
-                self.assertEqual(h.echo(None,dt=.02)['state'],'LAYOUT_WAIT')
-                h.qr.update(state=qr_state,error='lost')
-                h.echo(None,dt=h.controller.cfg.layout_timeout_seconds+.1)
+                wheel_count=len(h.drive.commands)
+                def forbidden(): raise AssertionError('No distance/layout reads after target stop')
+                h.controller.read_sample=h.controller.qr_snapshot=forbidden
+                for _ in range(500):
+                    h.time+=.1;h.controller.step()
+                    if h.controller.snapshot()['state']=='QR_VIEW_READY': break
                 state=h.controller.snapshot()
-                self.assertEqual((state['state'],state['error']),('ERROR',error))
-                self.assertEqual(driver.writes,[])
+                self.assertEqual(state['state'],'QR_VIEW_READY')
+                self.assertTrue(state['qr_view_ready'])
+                self.assertFalse(state['automatic_motion_enabled'])
+                self.assertFalse(state['arm_motion_enabled'])
+                self.assertEqual(state['pending_stages'],['pick_place_qr','arm_transfer'])
+                self.assertEqual(driver.angles,dict(base=goal,shoulder=81.,elbow=103.,gripper=145.))
+                self.assertEqual({joint for joint,value in driver.writes},{'base'})
+                self.assertEqual(h.controller.arm.state,'IDLE')
+                self.assertEqual(h.drive.commands[wheel_count:],[('stop',0)])
+                count=len(driver.writes)
+                for _ in range(50): h.echo(80.)
+                self.assertEqual(len(driver.writes),count)
 
-    def test_optional_calibrated_arm_completes_both_transfers_after_direct_stop(self):
-        for direction in ['LEFT','RIGHT']:
-            h=Harness(direction)
-            h.qr['layout']='LEFT_TOP'
-            h.controller.cfg=replace(h.controller.cfg,arm_enabled=True)
-            driver=test_arm.FakeArm()
-            h.controller.arm=test_arm.ArmSequence(driver,test_arm.calibrated_profile(),clock=lambda:h.time)
-            h.echo(80.);h.near(36.);h.settle(30.)
-            wheel_count=len(h.drive.commands)
-            def forbidden(): raise AssertionError('No sensor/camera reads after target stop')
-            h.controller.read_sample=forbidden
-            for _ in range(20): h.echo(20.)
-            self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
-            # The camera is read only for the layout, never while the arm moves.
-            h.controller.qr_snapshot=forbidden
-            for _ in range(4000):
-                h.time+=.05;h.controller.step()
-                if h.controller.snapshot()['state']=='COMPLETE': break
-            self.assertEqual(h.controller.snapshot()['state'],'COMPLETE')
-            self.assertEqual(h.controller.arm.completed_transfers,2)
-            self.assertFalse(any(c[0]=='forward' for c in h.drive.commands[wheel_count:]))
+    def test_stop_during_base_turn_holds_all_joints_and_never_resumes(self):
+        h,driver=self.prepare()
+        h.echo(80.);h.near(36.);h.settle(30.)
+        h.echo(None,dt=1.01);h.echo(None,dt=.1)
+        before=dict(driver.angles)
+        h.controller.cancel('WEB_STOP')
+        self.assertEqual(h.controller.snapshot()['state'],'CANCELLED')
+        count=len(driver.writes)
+        for _ in range(100): h.echo(80.)
+        self.assertEqual((driver.angles,len(driver.writes)),(before,count))
+        self.assertGreater(driver.holds,0)
+
+    def test_restricted_base_limits_stop_without_any_servo_write(self):
+        h,driver=self.prepare()
+        h.controller.qr_preparation.profile.limits['base']=[30.,150.]
+        h.echo(80.);h.near(36.);h.settle(30.)
+        state=h.echo(None,dt=1.01)
+        self.assertEqual(state['state'],'ERROR')
+        self.assertIn('QR_BASE_TARGET_OUT_OF_LIMITS',state['error'])
+        self.assertEqual(driver.writes,[])
+
+    def test_failure_during_base_turn_holds_and_never_resumes(self):
+        h,driver=self.prepare()
+        h.echo(80.);h.near(36.);h.settle(30.)
+        h.echo(None,dt=1.01);h.echo(None,dt=.1)
+        h.controller.fail('SERVO_ERROR')
+        count=len(driver.writes)
+        for _ in range(50): h.echo(80.)
+        self.assertEqual(h.controller.snapshot()['state'],'ERROR')
+        self.assertEqual(len(driver.writes),count)
+
+    def test_base_turn_timeout_holds_without_transfer(self):
+        h,driver=self.prepare()
+        h.echo(80.);h.near(36.);h.settle(30.)
+        h.echo(None,dt=1.01)
+        state=h.echo(None,dt=100.)
+        self.assertEqual((state['state'],state['error']),('ERROR','QR_PREPARATION_TIMEOUT'))
+        self.assertEqual(driver.writes,[])
 
     def test_official_motor_driver_gets_real_pwm_throttle_writes(self):
         class PCA:

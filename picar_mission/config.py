@@ -37,6 +37,9 @@ class MissionConfig:
     direct_distance_max_age_seconds: float = 0.5
     direct_distance_retry_seconds: float = 3.0
     arm_start_delay_seconds: float = 1.0
+    # Center is BASE 90 degrees: look left/right by 90 degrees, BASE only.
+    qr_prepare_left_base_deg: float = 0.0
+    qr_prepare_right_base_deg: float = 180.0
     # Box layout from PICK/PLACE codes, read after the stop and before the arm.
     layout_frames: int = 3
     layout_min_gap: float = 0.05
@@ -114,14 +117,16 @@ def load_config(path=None):
         raise ValueError('Require 2 < target_distance_cm < 199')
     if type(cfg.direct_speed) is not int or not 0 < cfg.direct_speed <= 100:
         raise ValueError('Require 0 < direct_speed <= 100')
-    if cfg.arm_enabled:
-        if isinstance(cfg.arm_start_delay_seconds,bool) or not isinstance(cfg.arm_start_delay_seconds,(int,float)) or not math.isfinite(cfg.arm_start_delay_seconds) or cfg.arm_start_delay_seconds < 0:
-            raise ValueError('arm_start_delay_seconds must be nonnegative and finite')
+    if isinstance(cfg.arm_start_delay_seconds,bool) or not isinstance(cfg.arm_start_delay_seconds,(int,float)) or not math.isfinite(cfg.arm_start_delay_seconds) or cfg.arm_start_delay_seconds < 0:
+        raise ValueError('arm_start_delay_seconds must be nonnegative and finite')
     def number(name):
         value = getattr(cfg, name)
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             raise ValueError(name + ' must be a finite number')
         return value
+    for name in ('qr_prepare_left_base_deg', 'qr_prepare_right_base_deg'):
+        if not 0 <= number(name) <= 189:
+            raise ValueError(name+' must be within 0~189 degrees')
     if abs(number('direct_steer_preload_deg')) > 30:
         raise ValueError('Require |direct_steer_preload_deg| <= 30')
     for name in ('direct_steer_preload_seconds', 'direct_steer_settle_seconds', 'heading_deadband_deg'):

@@ -61,6 +61,15 @@ async function poll() {
   assert.equal(element('camera-placeholder').hidden,false,'An old image must not be shown as live');
   element('camera').listeners.load();
   assert.equal(element('camera-placeholder').hidden,true);
+  state.first_direction='LEFT';
+  state.target_stop_latched=true;
+  Object.assign(state.dashboard,{state:'QR_VIEW_READY',arm_mode:'qr_prepare_only',started:true,finished:true});
+  await poll();
+  assert.equal(element('state-pill').textContent,'QR 확인 준비 완료');
+  assert.equal(element('timer-state').textContent,'준비 완료 · 대기');
+  assert.equal(element('step-counter').textContent,'2 / 5','Preparation is not full mission completion');
+  assert.match(element('arm-note').textContent,/BASE/);
+  assert.match(element('direction-note').textContent,/왼쪽 PICK·PLACE QR/);
   assert(calls.every(call=>call.method==='GET'),'Camera recovery must never send motion commands');
   console.log('Offline and missed-disconnect recovery resubscribed without motion commands.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
