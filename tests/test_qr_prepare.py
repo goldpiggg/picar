@@ -35,8 +35,21 @@ class ElbowTiltTests(unittest.TestCase):
             preparation.start('LEFT',0.)
         self.assertEqual(driver.writes,[])
 
-    def test_shipped_tilt_lowers_the_elbow_twenty_degrees(self):
-        self.assertEqual(load_config().qr_prepare_elbow_offset_deg,-20.)
+    def test_shipped_tilt_lowers_the_elbow_thirty_degrees_on_both_sides(self):
+        cfg=load_config()
+        self.assertEqual(cfg.qr_prepare_elbow_offset_deg,-30.)
+        for side in ('LEFT','RIGHT'):
+            driver=FakeArm()
+            preparation=QrPreparation(driver,load_profile(),{'LEFT':165.,'RIGHT':7.},150.,
+                elbow_offset=cfg.qr_prepare_elbow_offset_deg)
+            preparation.start(side,0.)
+            for step in range(1,201):preparation.tick(step*.02)
+            self.assertEqual(driver.angles['elbow'],60.)
+            self.assertEqual(driver.angles['shoulder'],90.)
+            self.assertEqual(driver.angles['gripper'],90.)
+            preparation.scan(4.)
+            for step in range(1,101):preparation.tick(4.+step*.02)
+            self.assertEqual(driver.angles['elbow'],60.)
 
 
 class PreparationSettingsTests(unittest.TestCase):
@@ -140,10 +153,10 @@ class ProductionPreparationTests(unittest.TestCase):
         self.assertFalse(status['dashboard']['finished'])
         self.assertEqual(status['dashboard']['remaining_cm'],0.)
         self.assertEqual(status['dashboard']['distance_source'],'FINAL')
-        # RIGHT turns BASE down to 0 and lowers the elbow 20 degrees to see both codes.
-        self.assertEqual(servo.nowPos[1:5],[7.,81.,83.,145.])
+        # RIGHT turns BASE to 7 and lowers the elbow 30 degrees to see both codes.
+        self.assertEqual(servo.nowPos[1:5],[7.,81.,73.,145.])
         self.assertEqual({channel for channel,angle in writes},{1,3})
-        self.assertEqual(status['qr_preparation']['elbow_target_deg'],83.)
+        self.assertEqual(status['qr_preparation']['elbow_target_deg'],73.)
         self.assertIsNone(controller.arm)
         self.assertTrue(all(command[0]=='stop' for command in wheels[last_wheel:]))
         self.assertEqual(bridge.runtime.snapshot()['state'],'WAIT_SIDE_QR')
