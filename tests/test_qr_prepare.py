@@ -19,7 +19,7 @@ class PreparationSettingsTests(unittest.TestCase):
     def test_defaults_are_ninety_degrees_either_side_of_center(self):
         cfg=load_config()
         self.assertEqual((cfg.qr_prepare_left_base_deg,cfg.qr_prepare_right_base_deg),(180.,0.))
-        self.assertFalse(cfg.arm_enabled)
+        self.assertTrue(cfg.arm_enabled)
 
     def test_invalid_turn_targets_and_delay_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

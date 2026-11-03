@@ -48,7 +48,7 @@ ARM_RESET → WAIT_QR → STEER_PRELOAD(0.2초) → STEER_SETTLE(0.3초) → DRI
 
 `approach_complete=true`는 차가 멈춘 상태에서 잰 중앙값이 30 ±1cm였다는 뜻입니다. 이때 `target_stop_latched=true`, `final_distance_cm`에 그 거리가 기록되고, 이후 바퀴 전진·후진·조향 명령을 잠급니다. 새 QR이나 거리값으로 잠금을 풀거나 다시 출발하지 않습니다.
 
-새 미션은 `ARM_RESET`에서 팔 4개 관절을 서버 시작 자세(기본 모두 90°)로 복원한 뒤 출발 QR을 기다립니다. 정지 후 `ARM_WAIT`에서 기본 1초를 기다리고 `QR_TURNING`에서 BASE만 돌립니다. 어깨·팔꿈치·집게는 유지하며, `SIDE_QR_WAIT`에서 PICK과 PLACE QR의 좌우 순서를 비교합니다. RIGHT를 볼 때 화면 왼쪽이 A, LEFT를 볼 때 화면 오른쪽이 A입니다. 같은 결과가 3프레임 연속 확인되면 `SEQUENCE_READY`에서 LEFT-A·LEFT-B·RIGHT-A·RIGHT-B 중 시작할 자리와 전체 운반 순서를 표시합니다. 자동 운반은 시작하지 않습니다. `arm_enabled`·`calibration_confirmed`와 별개이며, 정지 후 바퀴 잠금을 유지합니다.
+새 미션은 `ARM_RESET`에서 팔 4개 관절을 서버 시작 자세(기본 모두 90°)로 복원한 뒤 출발 QR을 기다립니다. 정지 후 `ARM_WAIT`에서 기본 1초를 기다리고 `QR_TURNING`에서 BASE만 돌립니다. 어깨·팔꿈치·집게는 유지하며, `SIDE_QR_WAIT`에서 PICK과 PLACE QR의 좌우 순서를 비교합니다. RIGHT를 볼 때 화면 왼쪽이 A, LEFT를 볼 때 화면 오른쪽이 A입니다. 같은 결과가 3프레임 연속 확인되면 `SEQUENCE_READY`에서 LEFT-A·LEFT-B·RIGHT-A·RIGHT-B 중 시작할 자리와 전체 운반 순서를 확정합니다. 이후 QR이 가려져도 바뀌지 않습니다. `arm_enabled=true`이고 `/poses`의 네 자리 approach·pick·place와 공통 집게 열기·닫기·`center_carry`가 모두 저장돼 있으면 `ARM_TRANSFER`에서 확정한 순서대로 두 물체를 옮기고 `COMPLETE`로 끝납니다. 집거나 놓은 뒤에는 approach 높이로 올린 다음에만 좌우로 돌며, 반대편으로 갈 때는 `center_carry`를 거칩니다. 꺼져 있거나 빠진 자세가 있으면 `SEQUENCE_READY`에서 이유(`arm_blocked_reason`)를 표시하고 대기합니다. 전체 중지는 현재 자세와 집게를 유지합니다. 정지 후 바퀴 잠금을 유지합니다. 로봇에서 `python3 scripts/check_transfer.py`를 실행하면 하드웨어를 움직이지 않고 빠진 자세와 네 시작 위치별 운반 단계·각도를 보여줍니다.
 
 ## 모듈 연결
 
@@ -139,7 +139,7 @@ sudo python3 Server/WebServer.py
 | `layout_timeout_seconds` | 5.0 | 박스 배치를 기다리는 최대 시간. 넘으면 팔을 움직이지 않고 `ERROR` |
 | `approach_timeout_seconds` | 40.0 | 주행 시간 한도 |
 | `auto_approach_enabled` | true | 자동 주행 사용 |
-| `arm_enabled` | false | 보관된 운반 기능 설정. 현재 BASE 회전·대기 동작은 이 값과 별개이며 운반으로 넘어가지 않음 |
+| `arm_enabled` | true | 시퀀스 확정 뒤 `/poses`에 저장한 자세로 자동 운반. 자세가 하나라도 빠지면 운반하지 않고 대기 |
 | `arm_jog_speed` | 40 | 기본 웹 ARM·집게 버튼 속도(도/초, 정수 1~150). 파일에 없으면 기본값 |
 | `direct_steer_preload_deg` / `_seconds` | 10.0 / 0.2 | 출발 전 가운데로 돌아오기 전에 먼저 보낼 조향각(양수=오른쪽)과 머무는 시간 |
 | `direct_steer_settle_seconds` | 0.3 | 가운데 정렬 후 출발까지 대기 |
@@ -254,6 +254,6 @@ Adeept brand and logo are copyright of Shenzhen Adeept Technology Co., Ltd. and 
 
 ### 네 자리의 팔 자세 저장과 PC 미리보기
 
-`/poses`에서 LEFT-A·RIGHT-A·LEFT-B·RIGHT-B의 접근·집기·놓기 자세를 따로 저장합니다. A는 출발 QR 쪽, B는 출발선 쪽입니다. 전체 동작 중지 후 바로 수동 조작할 수 있고, 기존 자세 이름 때문에 저장 화면이 오류를 내지 않도록 호환합니다. QR로 네 시작 시퀀스를 선택해 표시하지만 저장한 자세의 자동 운반은 대기합니다. `python scripts/preview_positions.py`로 로봇 없이 `http://127.0.0.1:5082/poses`를 확인할 수 있습니다. 자세한 내용은 [ARM_POSITIONS.md](docs/ARM_POSITIONS.md)를 참고하세요.
+`/poses`에서 LEFT-A·RIGHT-A·LEFT-B·RIGHT-B의 접근·집기·놓기 자세를 따로 저장합니다. A는 출발 QR 쪽, B는 출발선 쪽입니다. 전체 동작 중지 후 바로 수동 조작할 수 있고, 기존 자세 이름 때문에 저장 화면이 오류를 내지 않도록 호환합니다. QR로 네 시작 시퀀스 중 하나를 확정하고, `arm_enabled=true`이면 저장한 자세로 자동 운반합니다. `python scripts/preview_positions.py`로 로봇 없이 `http://127.0.0.1:5082/poses`를 확인할 수 있습니다. 자세한 내용은 [ARM_POSITIONS.md](docs/ARM_POSITIONS.md)를 참고하세요.
 
 대시보드와 자세 저장 화면에서 저전압 경고음을 끄거나 다시 켤 수 있습니다. 무시하기는 묵음 표시를 남기며, 켜기 자체가 소리를 내지는 않습니다. [전압 경고음 안내](docs/BATTERY_SOUND.md)를 참고하세요.

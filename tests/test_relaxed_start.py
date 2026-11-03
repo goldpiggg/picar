@@ -10,13 +10,14 @@ from test_approach import Harness
 
 class RelaxedStartTests(unittest.TestCase):
     def test_repository_and_fallback_settings_agree(self):
-        self.assertEqual(load_config(),MissionConfig())
+        # The shipped file turns transfer on; the code fallback keeps it off.
+        self.assertEqual(load_config(),replace(MissionConfig(),arm_enabled=True))
         cfg=load_config()
         self.assertEqual((cfg.required_frames,cfg.hold_seconds),(1,0.))
         self.assertEqual((cfg.target_distance_cm,cfg.stop_tolerance_cm),(30.,1.))
         self.assertEqual((cfg.cruise_motor_volts,cfg.pulse_motor_volts,cfg.pulse_seconds),(2.8,3.,.15))
         self.assertEqual(cfg.distance_max_age_seconds,.25)
-        self.assertFalse(cfg.arm_enabled)
+        self.assertTrue(cfg.arm_enabled)
 
     def test_two_matching_frames_with_slow_decode_confirm_direction(self):
         now=[0.]

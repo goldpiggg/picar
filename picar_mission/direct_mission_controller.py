@@ -1,4 +1,5 @@
-"""One QR -> forward/pulses to target -> BASE toward that side -> wait.
+"""One QR -> forward/pulses to target -> BASE toward that side -> side QR
+sequence -> taught-position transfer when enabled, otherwise wait.
 
 Motor power is set in volts and sent as percent of Move.REFERENCE_VOLTS (7 V);
 Move.py rescales that by the measured battery, so any charge drives the same.
@@ -21,9 +22,12 @@ REFERENCE_VOLTS = 7.     # Must match Server/Move.py REFERENCE_VOLTS.
 
 class DirectMissionController(MissionController):
     def __init__(self, *args, read_heading=None, read_battery=None, qr_preparation=None,
-                 arm_reset=None, on_reset_complete=None, request_side_qr=None, **kwargs):
+                 arm_reset=None, on_reset_complete=None, request_side_qr=None,
+                 transfer_blocked_reason=None, **kwargs):
         kwargs['_precision'] = False
         super().__init__(*args, **kwargs)
+        # Why arm_sequence is None, e.g. untaught positions; shown on selection.
+        self.transfer_blocked_reason = transfer_blocked_reason
         self.read_heading = read_heading
         self.read_battery = read_battery
         self.qr_preparation = qr_preparation
@@ -44,7 +48,7 @@ class DirectMissionController(MissionController):
         self.measure_values, self.measure_last = [], None
         self.zone_values, self.zone_last = deque(maxlen=ZONE_SAMPLES), None
         self.data.update(drive_mode='direct', configured_speed=None,
-                         implemented_stages=['arm_reset','qr_recognition','direct_approach','pulse_approach','qr_view_preparation','sequence_selection'],
+                         implemented_stages=['arm_reset','qr_recognition','direct_approach','pulse_approach','qr_view_preparation','sequence_selection','arm_transfer'],
                          pending_stages=['qr_view_preparation','pick_place_qr','arm_transfer'],
                          qr_view_ready=False,sequence_selection=None,arm_requested=True,
                          arm_blocked_reason=None if qr_preparation is not None else 'QR_PREPARATION_UNAVAILABLE',
@@ -147,8 +151,29 @@ class DirectMissionController(MissionController):
             selected = qr.get('sequence_selection') or {}
             position = selected.get('start_position')
             if position in START_POSITIONS and position.startswith(self.data['first_direction']+'-'):
-                self.data.update(sequence_selection=sequence_for(position),pending_stages=['arm_transfer'])
-                self._state('SEQUENCE_READY',now)
+                # The selection is fixed from here: QR codes hidden by the
+                # moving arm can no longer change the plan.
+                self.data['sequence_selection'] = sequence_for(position)
+                reason = self._transfer_blocked_reason()
+                if reason is not None:
+                    self.data.update(pending_stages=['arm_transfer'],arm_blocked_reason=reason)
+                    self._state('SEQUENCE_READY',now)
+                    return
+                self.arm.start(self.data['first_direction'],position,now)
+                self.data.update(arm_motion_enabled=True,automatic_motion_enabled=True,
+                                 arm_blocked_reason=None)
+                self._state('ARM_TRANSFER',now)
+        elif self.data['state']=='ARM_TRANSFER':
+            if self.arm.tick(now)=='COMPLETE':
+                self.data.update(arm_motion_enabled=False,automatic_motion_enabled=False,pending_stages=[])
+                self._state('COMPLETE',now)
+
+    def _transfer_blocked_reason(self):
+        if not self.cfg.arm_enabled:
+            return 'DISABLED'
+        if self.arm is None or not self.arm.profile.calibrated:
+            return self.transfer_blocked_reason or 'ARM_TRANSFER_UNAVAILABLE'
+        return None
 
     def _read_distance(self, now):
         sample = self.read_sample()

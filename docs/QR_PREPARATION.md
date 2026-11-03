@@ -22,7 +22,7 @@
 | 3 · RIGHT-A | RIGHT-A PICK → LEFT-A PLACE → LEFT-B PICK → RIGHT-B PLACE |
 | 4 · RIGHT-B | RIGHT-B PICK → LEFT-B PLACE → LEFT-A PICK → RIGHT-A PLACE |
 
-이 기능은 `arm_enabled`·`calibration_confirmed`와 별개이며 두 값을 켜도 자동 운반으로 넘어가지 않습니다. 선택 결과는 다음 새 미션까지 유지하며, 새 미션을 시작하면 QR·선택·시간을 함께 지웁니다. 연결이 끊기면 화면은 기존 선택을 현재 결과로 표시하지 않습니다.
+`mission_config.json`의 `arm_enabled=true`이고 `/poses`의 필요한 자세(네 자리 × approach·pick·place, 공통 집게 열기·닫기, `center_carry`)가 모두 저장돼 있으면 확정 직후 `ARM_TRANSFER`로 넘어가 이 순서대로 운반합니다. 예전 `arm_poses.json`의 자세와 `calibration_confirmed`는 쓰지 않으며, 속도·대기·시간 한도만 그 파일에서 읽습니다. 조건이 맞지 않으면 `SEQUENCE_READY`에서 이유를 표시하고 대기합니다. 선택 결과는 다음 새 미션까지 유지하며, 새 미션을 시작하면 QR·선택·시간을 함께 지웁니다. 연결이 끊기면 화면은 기존 선택을 현재 결과로 표시하지 않습니다.
 
 정지 시 초음파 거리값을 고정하고 이후 조향·전진·후진을 잠급니다. 전체 중지는 주행·QR·팔 이동 작업을 종료하고 `/poses`에서 즉시 수동 조작을 허용합니다. 새 미션 버튼은 수동 작업을 먼저 종료한 뒤 초기 자세 복원을 시작합니다. 기존 자세 이름을 가진 `arm_poses.json`도 관절 범위·속도만 읽어 수동 조절·자리 저장에 사용할 수 있으며 원본 파일을 새 형식으로 덮어쓰지 않습니다. `arm_positions.json`·설정 파일도 자동으로 다시 저장하지 않습니다.
 
