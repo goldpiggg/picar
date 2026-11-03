@@ -510,10 +510,14 @@ class Camera(BaseCamera):
             cfg = mission_bridge.config
             if cfg.camera_backend == 'usb':
                 usb = cv2.VideoCapture(cfg.camera_source)
-                usb.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                usb.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                 if not usb.isOpened():
                     raise RuntimeError('USB camera unavailable; check camera_source and other running controllers.')
+                # Negotiate the format before the size. Some UVC drivers reset
+                # the size when the pixel format changes or keep a 160x120 mode.
+                usb.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                usb.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                usb.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                usb.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             else:
                 from picamera2 import Picamera2
                 import libcamera
@@ -527,6 +531,9 @@ class Camera(BaseCamera):
                 preview_config.queue = True
                 picam2.start()
             failed_reads = 0
+            small_frames = 0
+            tried_yuyv = False
+            resolution_logged = False
             while True:
                 if usb is not None:
                     ok, img = usb.read()
@@ -537,6 +544,24 @@ class Camera(BaseCamera):
                         time.sleep(.05)
                         continue
                     failed_reads = 0
+                    height, width = img.shape[:2]
+                    if (width, height) != (640, 480):
+                        # Never upscale a tiny frame and pretend it is a clear
+                        # 640x480 capture. Discard buffered negotiation frames.
+                        small_frames += 1
+                        if small_frames >= 3:
+                            if tried_yuyv:
+                                raise RuntimeError('USB camera resolution mismatch: requested 640x480, received %dx%d' % (width,height))
+                            usb.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'YUYV'))
+                            usb.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                            usb.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                            small_frames = 0
+                            tried_yuyv = True
+                        continue
+                    small_frames = 0
+                    if not resolution_logged:
+                        print('USB camera capture: %dx%d' % (width,height),flush=True)
+                        resolution_logged = True
                     if hflip or vflip:
                         img = cv2.flip(img, -1 if hflip and vflip else (1 if hflip else 0))
                 else:
