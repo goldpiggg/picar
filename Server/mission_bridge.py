@@ -18,7 +18,7 @@ from picar_mission.arm_sequence import ArmMotionProfile
 from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
 from picar_mission.heading import GyroHeading
 from picar_mission.qr_scan import emit
-from threading import Event, RLock, Thread
+from threading import Event, RLock, Thread, Timer
 import json
 import time
 import math
@@ -163,9 +163,48 @@ class DriveAdapter:
     def __init__(self, move, steering):
         self.move,self.steering = move,steering
         self.locked = False
+        self._motor_lock = RLock()
+        self._pulse_timer = None
+        self._pulse_generation = 0
+
+    def _cancel_pulse(self):
+        self._pulse_generation += 1
+        if self._pulse_timer is not None:
+            self._pulse_timer.cancel()
+            self._pulse_timer = None
 
     def stop(self):
-        self.move.motorStop()
+        with self._motor_lock:
+            self._cancel_pulse()
+            self.move.motorStop()
+
+    def pulse(self, direction, speed, seconds):
+        if direction not in (-1,1) or not math.isfinite(seconds) or not 0 < seconds <= 2.:
+            raise ValueError('Invalid timed motor pulse')
+        with self._motor_lock:
+            if self.locked:
+                raise RuntimeError('DRIVE_LOCKED_AFTER_STOP')
+            self._cancel_pulse()
+            generation = self._pulse_generation
+            def expire():
+                with self._motor_lock:
+                    if generation != self._pulse_generation:
+                        return
+                    self._pulse_timer = None
+                    try:
+                        self.move.motorStop()
+                    except Exception as exc:
+                        emit('pulse_stop_failed',message=str(exc))
+            timer = Timer(seconds,expire)
+            timer.daemon = True
+            self._pulse_timer = timer
+            try:
+                self.move.move(speed,direction,'mid')
+                timer.start()
+            except Exception:
+                self._cancel_pulse()
+                self.move.motorStop()
+                raise
 
     def straight(self):
         if self.locked:
@@ -179,18 +218,23 @@ class DriveAdapter:
         self.steering.moveAngle(0,angle)
 
     def forward(self, speed):
-        if self.locked:
-            raise RuntimeError('DRIVE_LOCKED_AFTER_STOP')
-        self.move.move(speed,1,'mid')
+        with self._motor_lock:
+            if self.locked:
+                raise RuntimeError('DRIVE_LOCKED_AFTER_STOP')
+            self._cancel_pulse()
+            self.move.move(speed,1,'mid')
 
     def backward(self, speed):
-        if self.locked:
-            raise RuntimeError('DRIVE_LOCKED_AFTER_STOP')
-        self.move.move(speed,-1,'mid')
+        with self._motor_lock:
+            if self.locked:
+                raise RuntimeError('DRIVE_LOCKED_AFTER_STOP')
+            self._cancel_pulse()
+            self.move.move(speed,-1,'mid')
 
     def lock(self):
-        self.locked = True
-        self.stop()
+        with self._motor_lock:
+            self.locked = True
+            self.stop()
 
 
 class ArmAdapter:

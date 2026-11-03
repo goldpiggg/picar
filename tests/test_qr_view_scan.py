@@ -43,14 +43,42 @@ class ViewSearchTests(unittest.TestCase):
 
     def test_search_stays_bounded_does_not_retilt_and_times_out(self):
         h,driver=self.make();started=h.time;wheels=len(h.drive.commands);seen=[]
-        for _ in range(100):
+        for _ in range(120):
             h.echo(None,dt=.02);seen.append(h.controller.qr_preparation.target)
             if h.controller.snapshot()['state']=='ERROR':break
         self.assertIn(155.,seen);self.assertIn(175.,seen)
-        self.assertLessEqual(h.time-started,1.53)
+        self.assertLessEqual(h.time-started,2.13)
         self.assertIn('QR_VIEW_NOT_FOUND',h.controller.snapshot()['error'])
         self.assertEqual(driver.angles['elbow'],70.)
         self.assertTrue(all(c[0]=='stop' for c in h.drive.commands[wheels:]))
+
+    def test_final_view_waits_for_decode_without_rescanning(self):
+        h,driver=self.make()
+        h.time=h.controller.view_scan_started+h.controller.cfg.qr_scan_timeout_seconds+.01
+        before=list(driver.writes)
+        h.controller.step()
+        self.assertEqual(h.controller.snapshot()['state'],'SIDE_QR_WAIT')
+        self.assertEqual(driver.writes,before)
+        h.qr['sequence_selection']={'start_position':'LEFT-B'}
+        h.time+=.2
+        h.controller.step()
+        self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
+
+    def test_confirmed_result_wins_over_deadline_in_both_scan_states(self):
+        for state in ('SIDE_QR_WAIT','QR_SCAN_MOVING'):
+            h,_=self.make()
+            h.controller.data['state']=state
+            h.time=h.controller.view_scan_started+h.controller.cfg.qr_scan_timeout_seconds+.61
+            h.qr['sequence_selection']={'start_position':'LEFT-B'}
+            h.controller.step()
+            self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
+
+    def test_no_result_in_moving_state_still_has_hard_deadline(self):
+        h,_=self.make()
+        h.controller.data['state']='QR_SCAN_MOVING'
+        h.time=h.controller.view_scan_started+h.controller.cfg.qr_scan_timeout_seconds+.61
+        h.controller.step()
+        self.assertIn('QR_VIEW_NOT_FOUND',h.controller.snapshot()['error'])
 
     def test_mid_scan_success_and_stop_prevent_further_search(self):
         for cancel in (False,True):
