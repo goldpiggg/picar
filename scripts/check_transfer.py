@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 from picar_mission.arm_positions import PositionStore
 from picar_mission.arm_sequence import load_motion_profile
 from picar_mission.config import load_config
-from picar_mission.position_transfer import PositionArmProfile
+from picar_mission.position_transfer import PositionArmProfile, fast_motion_values
 from picar_mission.sequence_selection import START_POSITIONS
 
 
@@ -28,8 +28,11 @@ def main():
         print('자세 파일이 없습니다: %s' % args.positions)
         return 1
     motion = load_motion_profile(args.poses)
+    cfg = load_config()
+    values = fast_motion_values(motion.values) if cfg.fast_mission_enabled else motion.values
     try:
-        profile = PositionArmProfile(motion.values, PositionStore(args.positions, motion.limits).read())
+        profile = PositionArmProfile(values, PositionStore(args.positions, motion.limits).read())
+        profile.speed_scale = 4. if cfg.fast_mission_enabled else 1.
     except ValueError as exc:
         print('자동 운반 불가: %s' % exc)
         return 1

@@ -71,6 +71,7 @@ class MissionConfig:
     stop_stability_cm: float = 0.6
     stop_samples: int = 4
     arm_enabled: bool = False
+    fast_mission_enabled: bool = True
     direct_steer_preload_deg: float = 10.0
     direct_steer_preload_seconds: float = 0.2
     direct_steer_settle_seconds: float = 0.3
@@ -112,6 +113,8 @@ def load_config(path=None):
         raise ValueError('web_start_required must be boolean')
     if type(cfg.arm_enabled) is not bool:
         raise ValueError('arm_enabled must be boolean')
+    if type(cfg.fast_mission_enabled) is not bool:
+        raise ValueError('fast_mission_enabled must be boolean')
     if cfg.arm_enabled and not cfg.auto_approach_enabled:
         raise ValueError('Automatic arm sequence requires automatic approach')
     if cfg.auto_approach_enabled and not cfg.qr_enabled:

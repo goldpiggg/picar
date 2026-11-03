@@ -296,6 +296,7 @@ class DirectTests(unittest.TestCase):
 
     def test_base_turn_waits_for_verified_stop_and_delay(self):
         h,driver=self.prepare()
+        h.controller.cfg=replace(h.controller.cfg,fast_mission_enabled=False)
         requests=[];h.controller.request_layout=lambda:requests.append(h.time)
         h.echo(80.);h.near(36.)
         self.assertEqual(driver.writes,[])
