@@ -15,6 +15,7 @@ import flask_cors
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
+import sample_poses  # noqa: F401
 
 
 def load_bridge():

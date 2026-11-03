@@ -14,6 +14,7 @@ sys.path.insert(0,str(ROOT))
 from picar_mission.arm_sequence import ArmProfile,ArmSequence,PoseMove,load_profile,pose_targets,save_pose,JOINTS
 from picar_mission.config import MissionConfig
 from test_approach import Harness
+from sample_poses import SAMPLE_POSES
 
 
 class FakeArm:
@@ -246,7 +247,7 @@ class SavePoseTests(unittest.TestCase):
     def setUp(self):
         self.dir=tempfile.TemporaryDirectory()
         self.path=Path(self.dir.name)/'arm_poses.json'
-        shutil.copy(ROOT/'arm_poses.json',self.path)
+        shutil.copy(SAMPLE_POSES,self.path)
 
     def tearDown(self): self.dir.cleanup()
 

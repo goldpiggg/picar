@@ -41,7 +41,7 @@ python scripts/preview_positions.py
 
 ## 저장값 보존과 현재 범위
 
-새 실제 저장값은 로봇의 `arm_positions.json`에 기록하며 Git에서 제외합니다. 파일은 첫 저장 시 생성되고, 기존 파일의 첫 변경 전 사본은 `.before-edit`에 보관합니다. 저장 시 전체 구조와 관절 범위를 검증하고 파일을 원자적으로 교체합니다.
+새 실제 저장값은 로봇의 `arm_positions.json`에 기록하며, 자동 운반에 쓰는 값이므로 `arm_poses.json`과 함께 저장소에 커밋합니다. 로봇에서 다시 저장했다면 `git pull` 전에 두 파일을 커밋하거나 PC로 옮겨 커밋하세요. 파일은 첫 저장 시 생성되고, 기존 파일의 첫 변경 전 사본은 `.before-edit`에 보관합니다. 저장 시 전체 구조와 관절 범위를 검증하고 파일을 원자적으로 교체합니다.
 
 기존 `arm_poses.json`과 `mission_config.json`은 이 기능이 변경하지 않습니다. 기존 저장 화면은 `/poses/legacy`에서 계속 사용할 수 있으며 기존 이름·API도 유지됩니다. 과거 PICK/PLACE 자세를 새 A/B 자리로 자동 변환하지 않습니다.
 

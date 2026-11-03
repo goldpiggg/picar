@@ -11,6 +11,7 @@ from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
 from picar_mission.arm_sequence import LAYOUTS, MAX_ARM_SPEED, MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_motion_profile, load_profile, pose_targets, save_pose as save_arm_pose
 from picar_mission.qr_prepare import ArmReset, QrPreparation
+from picar_mission import arm_positions
 from picar_mission.arm_positions import PositionStore
 from picar_mission.position_transfer import PositionArmProfile
 from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
@@ -423,7 +424,7 @@ def _move_arm_targets(name, targets, profile, speed=None):
 
 
 def _position_store():
-    return PositionStore(ROOT/'arm_positions.json', limits=_load_motion_profile().limits)
+    return PositionStore(arm_positions.POSITIONS_FILE, limits=_load_motion_profile().limits)
 
 
 def position_data():

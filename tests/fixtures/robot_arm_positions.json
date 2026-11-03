@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "reference": "facing_start_qr",
+  "calibration_confirmed": false,
+  "positions": {
+    "LEFT-A": {
+      "approach": {
+        "angles_deg": {
+          "base": 154.0,
+          "shoulder": 111.0,
+          "elbow": 113.0
+        },
+        "saved_at": "2026-11-03T07:22:31+00:00"
+      },
+      "pick": {
+        "angles_deg": {
+          "base": 139.0,
+          "shoulder": 180.0,
+          "elbow": 160.0
+        },
+        "saved_at": "2026-11-03T07:26:38+00:00"
+      },
+      "place": {
+        "angles_deg": {
+          "base": 154.0,
+          "shoulder": 168.0,
+          "elbow": 180.0
+        },
+        "saved_at": "2026-11-03T07:23:16+00:00"
+      }
+    },
+    "RIGHT-A": {
+      "approach": {
+        "angles_deg": {
+          "base": 10.0,
+          "shoulder": 122.0,
+          "elbow": 122.0
+        },
+        "saved_at": "2026-11-03T07:15:49+00:00"
+      },
+      "pick": {
+        "angles_deg": {
+          "base": 22.0,
+          "shoulder": 180.0,
+          "elbow": 157.0
+        },
+        "saved_at": "2026-11-03T07:17:11+00:00"
+      },
+      "place": {
+        "angles_deg": {
+          "base": 10.0,
+          "shoulder": 174.0,
+          "elbow": 171.0
+        },
+        "saved_at": "2026-11-03T07:14:41+00:00"
+      }
+    },
+    "LEFT-B": {
+      "approach": {
+        "angles_deg": {
+          "base": 175.0,
+          "shoulder": 111.0,
+          "elbow": 113.0
+        },
+        "saved_at": "2026-11-03T07:35:30+00:00"
+      },
+      "pick": {
+        "angles_deg": {
+          "base": 160.0,
+          "shoulder": 170.0,
+          "elbow": 139.0
+        },
+        "saved_at": "2026-11-03T07:38:19+00:00"
+      },
+      "place": {
+        "angles_deg": {
+          "base": 175.0,
+          "shoulder": 140.0,
+          "elbow": 128.0
+        },
+        "saved_at": "2026-11-03T06:06:50+00:00"
+      }
+    },
+    "RIGHT-B": {
+      "approach": {
+        "angles_deg": {
+          "base": 3.0,
+          "shoulder": 110.0,
+          "elbow": 128.0
+        },
+        "saved_at": "2026-11-03T06:05:39+00:00"
+      },
+      "pick": {
+        "angles_deg": {
+          "base": 6.0,
+          "shoulder": 159.0,
+          "elbow": 129.0
+        },
+        "saved_at": "2026-11-03T07:33:58+00:00"
+      },
+      "place": {
+        "angles_deg": {
+          "base": 0.0,
+          "shoulder": 158.0,
+          "elbow": 157.0
+        },
+        "saved_at": "2026-11-03T07:32:37+00:00"
+      }
+    }
+  },
+  "common": {
+    "gripper_open": {
+      "angles_deg": {
+        "gripper": 150.0
+      },
+      "saved_at": "2026-11-03T05:58:50+00:00"
+    },
+    "gripper_closed": {
+      "angles_deg": {
+        "gripper": 72.0
+      },
+      "saved_at": "2026-11-03T07:02:58+00:00"
+    },
+    "center_clear": null,
+    "center_carry": null
+  }
+}

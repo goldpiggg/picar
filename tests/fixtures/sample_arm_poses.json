@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "calibration_confirmed": false,
+  "note": "ALL VALUES ARE PROVISIONAL EXAMPLES. Measure each pose on the actual robot before enabling automatic arm motion.",
+  "joint_limits_deg": {
+    "base": [0, 189],
+    "shoulder": [0, 189],
+    "elbow": [0, 189],
+    "gripper": [0, 189]
+  },
+  "gripper_deg": {"open": 110, "closed": 70},
+  "speed_deg_per_second": 80,
+  "settle_seconds": 0.5,
+  "grip_settle_seconds": 0.8,
+  "step_timeout_seconds": 20,
+  "sequence_timeout_seconds": 180,
+  "positions": {
+    "center_clear": {"base": 90, "shoulder": 90, "elbow": 90},
+    "center_carry": {"base": 90, "shoulder": 80, "elbow": 100},
+    "left_top_above": {"base": 60, "shoulder": 80, "elbow": 100},
+    "left_top_down": {"base": 60, "shoulder": 105, "elbow": 115},
+    "left_bottom_above": {"base": 45, "shoulder": 85, "elbow": 105},
+    "left_bottom_down": {"base": 45, "shoulder": 110, "elbow": 125},
+    "right_top_above": {"base": 120, "shoulder": 80, "elbow": 100},
+    "right_top_down": {"base": 120, "shoulder": 105, "elbow": 115},
+    "right_bottom_above": {"base": 135, "shoulder": 85, "elbow": 105},
+    "right_bottom_down": {"base": 135, "shoulder": 110, "elbow": 125}
+  }
+}
