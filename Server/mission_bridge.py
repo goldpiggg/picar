@@ -145,7 +145,9 @@ def _make_controller():
         try:
             if positions is None:
                 raise ValueError(positions_error or 'ARM_POSES_INCOMPLETE')
-            transfer_profile = PositionArmProfile(profile.values,positions)
+            transfer_profile = PositionArmProfile(profile.values,positions,carry_clearance={
+                'shoulder':config.carry_clearance_shoulder_deg,
+                'elbow':config.carry_clearance_elbow_deg})
             transfer_profile.speed_scale = profile.speed_scale
             transfer = ArmSequence(ArmAdapter(_servo),transfer_profile)
         except (OSError,ValueError,KeyError,TypeError) as exc:

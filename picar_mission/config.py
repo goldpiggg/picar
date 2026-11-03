@@ -44,6 +44,8 @@ class MissionConfig:
     qr_prepare_right_base_deg: float = 7.0
     # Applied after the taught A/B average; QR viewing only, not transfer poses.
     qr_prepare_right_base_offset_deg: float = -10.0
+    carry_clearance_shoulder_deg: float = 153.0
+    carry_clearance_elbow_deg: float = 156.0
     qr_scan_timeout_seconds: float = 1.5
     # Elbow change while looking at the side QR codes, from wherever the elbow
     # is then (the reset pose). Negative lowers it, like the web "hand down".
@@ -146,6 +148,9 @@ def load_config(path=None):
             raise ValueError(name+' must be within 0~189 degrees')
     if abs(number('qr_prepare_right_base_offset_deg')) > 30:
         raise ValueError('Require |qr_prepare_right_base_offset_deg| <= 30')
+    for name in ('carry_clearance_shoulder_deg','carry_clearance_elbow_deg'):
+        if not 0 <= number(name) <= 189:
+            raise ValueError(name+' must be within 0~189 degrees')
     if abs(number('qr_prepare_elbow_offset_deg')) > 90:
         raise ValueError('Require |qr_prepare_elbow_offset_deg| <= 90')
     if type(cfg.side_single_code) is not bool:
