@@ -41,6 +41,7 @@ class MissionConfig:
     # A larger BASE angle turns left, like the manufacturer's lookleft button.
     qr_prepare_left_base_deg: float = 180.0
     qr_prepare_right_base_deg: float = 0.0
+    side_qr_settle_seconds: float = 0.3
     # Box layout from PICK/PLACE codes, read after the stop and before the arm.
     layout_frames: int = 3
     layout_min_gap: float = 0.05
@@ -128,6 +129,8 @@ def load_config(path=None):
     for name in ('qr_prepare_left_base_deg', 'qr_prepare_right_base_deg'):
         if not 0 <= number(name) <= 189:
             raise ValueError(name+' must be within 0~189 degrees')
+    if number('side_qr_settle_seconds') < 0:
+        raise ValueError('side_qr_settle_seconds must be nonnegative')
     if abs(number('direct_steer_preload_deg')) > 30:
         raise ValueError('Require |direct_steer_preload_deg| <= 30')
     for name in ('direct_steer_preload_seconds', 'direct_steer_settle_seconds', 'heading_deadband_deg'):

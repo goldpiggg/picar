@@ -48,6 +48,20 @@
         <article class="metric"><div class="metric-label">정지선까지 남은 거리 <span class="metric-icon">⊣</span></div><div class="metric-value"><span id="remaining">—</span><span class="unit">cm</span></div><div class="metric-note">정지 목표 <strong id="target">30</strong> cm <span class="tiny-dot">·</span> <span id="remaining-note">측정 대기</span></div></article>
       </section>
 
+      <section class="panel sequence-panel" aria-label="QR 배치에 따른 시퀀스 선택">
+        <div class="panel-heading"><h2>시퀀스 선택</h2><span class="sequence-badge" id="sequence-status">인식 대기</span></div>
+        <div class="sequence-content"><div class="eyebrow">PICK START POSITION</div><h3 id="sequence-title">PICK 위치를 기다리고 있어요.</h3><p id="sequence-detail">출발 QR 방향으로 팔을 돌린 뒤 PICK·PLACE QR 두 개를 확인합니다.</p>
+          <div class="sequence-options">
+            <article class="sequence-option" data-sequence-start="LEFT-A"><span>01</span><strong>LEFT-A</strong><small>왼쪽 · QR 쪽에서 시작</small></article>
+            <article class="sequence-option" data-sequence-start="LEFT-B"><span>02</span><strong>LEFT-B</strong><small>왼쪽 · 출발선 쪽에서 시작</small></article>
+            <article class="sequence-option" data-sequence-start="RIGHT-A"><span>03</span><strong>RIGHT-A</strong><small>오른쪽 · QR 쪽에서 시작</small></article>
+            <article class="sequence-option" data-sequence-start="RIGHT-B"><span>04</span><strong>RIGHT-B</strong><small>오른쪽 · 출발선 쪽에서 시작</small></article>
+          </div>
+          <ol class="selected-sequence" id="selected-sequence" aria-label="선택된 운반 순서" hidden></ol>
+          <p class="sequence-footnote">A · 모니터/출발 QR 쪽 / B · 출발선 쪽. 선택된 순서를 표시하며 자동 운반은 대기합니다.</p>
+        </div>
+      </section>
+
       <div class="workspace-grid">
         <section class="panel camera-panel">
           <div class="panel-heading"><h2><span class="section-icon">◉</span> 실시간 카메라</h2><span class="live-badge" id="camera-badge"><i class="dot"></i> 연결 확인</span></div>
@@ -71,7 +85,7 @@
       <footer>PiCar-Pro V2 <span>QR → 30 cm 정지 → 물체 2개 운반</span></footer>
     </div>
   </main>
-  <dialog id="restart-dialog"><form method="dialog"><span class="eyebrow">NEXT MISSION</span><h2>출발 준비가 끝났나요?</h2><p>차를 출발선으로 옮기고, 팔과 물체를 시작 위치에 놓아주세요. 이전 QR과 시간은 초기화됩니다.</p><div class="dialog-actions"><button class="button secondary" value="cancel">취소</button><button class="button start" value="start">새 미션 시작 ↗</button></div></form></dialog>
+  <dialog id="restart-dialog"><form method="dialog"><span class="eyebrow">NEXT MISSION</span><h2>출발 준비가 끝났나요?</h2><p>차와 물체를 출발 위치에 놓아주세요. 시작하면 팔 4개 관절을 초기 자세(기본 90°)로 돌린 뒤 출발 QR을 기다립니다. 이전 QR·시퀀스 선택·시간은 초기화됩니다.</p><div class="dialog-actions"><button class="button secondary" value="cancel">취소</button><button class="button start" value="start">새 미션 시작 ↗</button></div></form></dialog>
   <noscript>미션 컨트롤을 사용하려면 브라우저에서 JavaScript를 켜주세요.</noscript>
 </body>
 </html>

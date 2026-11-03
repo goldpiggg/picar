@@ -4,9 +4,10 @@ import threading
 import time
 from .config import MissionConfig
 from .qr_scan import LayoutGate, QRReader, StartGate, classify_layout, emit
+from .sequence_selection import SideQrGate, sequence_for
 
 # States in which camera frames are decoded.
-SCANNING = ('WAIT_QR', 'WAIT_LAYOUT')
+SCANNING = ('WAIT_QR', 'WAIT_LAYOUT', 'WAIT_SIDE_QR')
 
 
 class MissionRuntime:
@@ -16,17 +17,22 @@ class MissionRuntime:
         self.reader_factory = reader_factory
         self.gate = StartGate(self.config.required_frames, self.config.hold_seconds, self.config.max_gap_seconds)
         self.layout_gate = LayoutGate(self.config.layout_frames, self.config.layout_min_gap)
+        self.side_gate = SideQrGate(self.config.layout_frames, self.config.layout_min_gap, self.config.max_gap_seconds)
         self.frames = queue.Queue(maxsize=1)
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.worker = None
         self.last_sequence = -1
+        self.scan_epoch = 0
+        self.scan_after = float('-inf')
         self.data = {
             'state': 'WAIT_QR' if self.config.qr_enabled else 'DISABLED',
             'first_direction': None,
             # layout is latched only after request_layout(); layout_preview is
             # the last decoded frame's reading, for checking the camera view.
             'layout': None, 'layout_preview': None,
+            'sequence_selection': None, 'side_direction': None,
+            'side_candidate': None, 'side_frames': 0,
             'target_distance_cm': self.config.target_distance_cm,
             'distance_offset_cm': self.config.distance_offset_cm,
             'automatic_motion_enabled': False,
@@ -71,19 +77,61 @@ class MissionRuntime:
             if self.data['state'] != 'DIRECTION_CONFIRMED':
                 return False
             self.layout_gate = LayoutGate(self.config.layout_frames, self.config.layout_min_gap)
+            self.scan_epoch += 1
             self.data.update(state='WAIT_LAYOUT', layout=None)
         emit('layout_requested')
         return True
 
+    def _discard_frames(self):
+        while True:
+            try:
+                self.frames.get_nowait()
+            except queue.Empty:
+                return
+
+    def wait_for_arm_reset(self):
+        """Frames captured before the initial pose is restored cannot start driving."""
+        with self.lock:
+            self.scan_epoch += 1
+            self.data.update(state='WAIT_ARM_RESET', first_direction=None, sequence_selection=None,
+                side_direction=None, side_candidate=None, side_frames=0, detections=[])
+            self._discard_frames()
+
+    def begin_start_scan(self):
+        with self.lock:
+            if self.stop_event.is_set() or self.data['state'] != 'WAIT_ARM_RESET':
+                return False
+            self.scan_epoch += 1
+            self.scan_after = self.clock()
+            self.gate = StartGate(self.config.required_frames, self.config.hold_seconds, self.config.max_gap_seconds)
+            self.data.update(state='WAIT_QR', candidate=None, consecutive_frames=0)
+            self._discard_frames()
+            return True
+
+    def request_side_qr(self, direction, not_before):
+        with self.lock:
+            if self.stop_event.is_set() or self.data['state'] != 'DIRECTION_CONFIRMED' or direction != self.data['first_direction']:
+                return False
+            self.scan_epoch += 1
+            self.scan_after = max(self.clock(), not_before)+self.config.side_qr_settle_seconds
+            self.side_gate = SideQrGate(self.config.layout_frames, self.config.layout_min_gap, self.config.max_gap_seconds)
+            self.data.update(state='WAIT_SIDE_QR', side_direction=direction,
+                side_candidate=None, side_frames=0, sequence_selection=None, detections=[])
+            self._discard_frames()
+            return True
+
     def _stale(self, captured_at):
         # A stale frame breaks the consecutive-frame streak of either gate.
-        if self.clock()-captured_at <= self.config.max_frame_age_seconds:
+        if captured_at >= self.scan_after and self.clock()-captured_at <= self.config.max_frame_age_seconds:
             return False
         if self.data['state'] == 'WAIT_QR':
             self.gate.update([], captured_at)
             self.data.update(candidate=None, consecutive_frames=0)
-        else:
+        elif self.data['state'] == 'WAIT_LAYOUT':
             self.layout_gate.update([])
+        else:
+            self.side_gate.update([], self.data['side_direction'], captured_at)
+            self.data.update(side_candidate=None, side_frames=0)
         return True
 
     def process_frame(self, frame, captured_at, sequence, reader):
@@ -94,10 +142,11 @@ class MissionRuntime:
             self.last_sequence = sequence
             if self._stale(captured_at):
                 return None
+            epoch = self.scan_epoch
         detections = reader.detect(frame)
-        direction = layout = None
+        direction = layout = start = None
         with self.lock:
-            if self.data['state'] not in SCANNING or self.stop_event.is_set():
+            if self.data['state'] not in SCANNING or self.stop_event.is_set() or epoch != self.scan_epoch:
                 return None
             if self._stale(captured_at):
                 return None
@@ -110,10 +159,16 @@ class MissionRuntime:
                 self.data.update(candidate=self.gate.candidate, consecutive_frames=self.gate.count)
                 if direction:
                     self.data.update(state='DIRECTION_CONFIRMED', first_direction=direction)
-            else:
+            elif self.data['state'] == 'WAIT_LAYOUT':
                 layout = self.layout_gate.update(detections)
                 if layout:
                     self.data.update(state='LAYOUT_CONFIRMED', layout=layout)
+            else:
+                start = self.side_gate.update(detections, self.data['side_direction'], captured_at)
+                self.data.update(side_candidate=self.side_gate.candidate, side_frames=self.side_gate.count)
+                if start:
+                    self.data.update(state='SEQUENCE_IDENTIFIED', sequence_selection=sequence_for(start))
+                    emit('sequence_identified', start_position=start)
         if direction:
             emit('direction_confirmed', direction=direction,
                  target_distance_cm=self.config.target_distance_cm,
@@ -121,7 +176,7 @@ class MissionRuntime:
                  automatic_motion_enabled=False)
         if layout:
             emit('layout_confirmed', layout=layout)
-        return direction or layout
+        return direction or layout or start
 
     def start(self):
         if not self.config.qr_enabled or self.worker is not None:

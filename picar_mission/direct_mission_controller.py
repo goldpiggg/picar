@@ -12,6 +12,7 @@ from statistics import median
 from .mission_controller import MissionController, TERMINAL
 from .distance import SensorFault
 from .qr_scan import emit
+from .sequence_selection import START_POSITIONS, sequence_for
 
 ZONE_SAMPLES = 3          # Fresh echoes whose median must be inside pulse_zone_cm.
 ZONE_EXIT_MARGIN_CM = 2.  # Settled this far beyond the zone: it was a false entry.
@@ -19,12 +20,16 @@ REFERENCE_VOLTS = 7.     # Must match Server/Move.py REFERENCE_VOLTS.
 
 
 class DirectMissionController(MissionController):
-    def __init__(self, *args, read_heading=None, read_battery=None, qr_preparation=None, **kwargs):
+    def __init__(self, *args, read_heading=None, read_battery=None, qr_preparation=None,
+                 arm_reset=None, on_reset_complete=None, request_side_qr=None, **kwargs):
         kwargs['_precision'] = False
         super().__init__(*args, **kwargs)
         self.read_heading = read_heading
         self.read_battery = read_battery
         self.qr_preparation = qr_preparation
+        self.arm_reset = arm_reset
+        self.on_reset_complete = on_reset_complete
+        self.request_side_qr = request_side_qr
         self.heading_ref = None
         self.target_stop_latched = False
         self.distance_retry_at = None
@@ -39,9 +44,9 @@ class DirectMissionController(MissionController):
         self.measure_values, self.measure_last = [], None
         self.zone_values, self.zone_last = deque(maxlen=ZONE_SAMPLES), None
         self.data.update(drive_mode='direct', configured_speed=None,
-                         implemented_stages=['qr_recognition','direct_approach','pulse_approach','qr_view_preparation'],
+                         implemented_stages=['arm_reset','qr_recognition','direct_approach','pulse_approach','qr_view_preparation','sequence_selection'],
                          pending_stages=['qr_view_preparation','pick_place_qr','arm_transfer'],
-                         qr_view_ready=False,arm_requested=True,
+                         qr_view_ready=False,sequence_selection=None,arm_requested=True,
                          arm_blocked_reason=None if qr_preparation is not None else 'QR_PREPARATION_UNAVAILABLE',
                          stop_reason=None,target_stop_latched=False,steer_deg=0,
                          heading_status='OFF' if not self._heading_enabled() else 'WAITING',
@@ -53,10 +58,28 @@ class DirectMissionController(MissionController):
         with self.lock:
             result = super().snapshot()
             result['qr_preparation'] = None if self.qr_preparation is None else self.qr_preparation.snapshot()
+            result['arm_reset'] = None if self.arm_reset is None else self.arm_reset.snapshot()
             return result
+
+    def start(self):
+        with self.lock:
+            if not self.cfg.auto_approach_enabled or self.worker is not None:
+                return
+            if self.arm_reset is not None:
+                self._stop()
+                try:
+                    self.arm_reset.start(self.clock())
+                    self.data['arm_motion_enabled'] = True
+                    self._state('ARM_RESET',self.clock())
+                except Exception as exc:
+                    self.fail(str(exc))
+                    return
+            super().start()
 
     def cancel(self, reason='USER_STOP'):
         with self.lock:
+            if self.arm_reset is not None:
+                self.arm_reset.cancel()
             if self.qr_preparation is not None:
                 self.qr_preparation.cancel()
             super().cancel(reason)
@@ -64,6 +87,8 @@ class DirectMissionController(MissionController):
     def fail(self, reason):
         with self.lock:
             try:
+                if self.arm_reset is not None:
+                    self.arm_reset.cancel()
                 if self.qr_preparation is not None:
                     self.qr_preparation.cancel()
             finally:
@@ -109,7 +134,21 @@ class DirectMissionController(MissionController):
                 self._stop()
                 self.data.update(arm_motion_enabled=False,automatic_motion_enabled=False,
                                  qr_view_ready=True,pending_stages=['pick_place_qr','arm_transfer'])
-                self._state('QR_VIEW_READY',now)
+                if self.request_side_qr is None:
+                    self._state('QR_VIEW_READY',now)
+                else:
+                    if not self.request_side_qr(self.data['first_direction'],now):
+                        raise RuntimeError('SIDE_QR_SCAN_NOT_STARTED')
+                    self._state('SIDE_QR_WAIT',now)
+        elif self.data['state']=='SIDE_QR_WAIT':
+            qr = self.qr_snapshot()
+            if qr.get('state')=='ERROR':
+                raise SensorFault('QR_CAMERA_ERROR: '+str(qr.get('error')))
+            selected = qr.get('sequence_selection') or {}
+            position = selected.get('start_position')
+            if position in START_POSITIONS and position.startswith(self.data['first_direction']+'-'):
+                self.data.update(sequence_selection=sequence_for(position),pending_stages=['arm_transfer'])
+                self._state('SEQUENCE_READY',now)
 
     def _read_distance(self, now):
         sample = self.read_sample()
@@ -141,6 +180,13 @@ class DirectMissionController(MissionController):
         with self.lock:
             state = self.data['state']
             if state in TERMINAL or self.stop_event.is_set():
+                return
+            if state=='ARM_RESET':
+                if self.arm_reset.tick(now)=='READY':
+                    self.data['arm_motion_enabled'] = False
+                    if self.on_reset_complete is not None and not self.on_reset_complete():
+                        raise RuntimeError('START_QR_SCAN_NOT_STARTED')
+                    self._state('WAIT_QR',now)
                 return
             if self.target_stop_latched:
                 self._after_stop(now)

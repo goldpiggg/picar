@@ -12,5 +12,11 @@ class PositionClientTests(unittest.TestCase):
             capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
 
+    @unittest.skipUnless(shutil.which('node'), 'Node is needed for the data error display check')
+    def test_bad_pose_data_is_distinguished_from_a_server_disconnect(self):
+        result = subprocess.run([shutil.which('node'), str(Path(__file__).with_name('positions_data_errors.cjs'))],
+            capture_output=True,text=True,encoding='utf-8',timeout=15)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
 
 if __name__ == '__main__': unittest.main()

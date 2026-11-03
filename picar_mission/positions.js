@@ -7,6 +7,7 @@
   const joints = [['base','회전'], ['shoulder','어깨'], ['elbow','팔꿈치'], ['gripper','집게']];
   let latest = null, connected = false, busy = false, pending = null, dialogAction = null, actionVersion = 0;
   let editingJoint = null;
+  let dataAvailable = false;
   const previewAngles = Object.fromEntries(joints.map(([name]) => [name,90]));
 
   function row(position, pose, label) {
@@ -32,7 +33,11 @@
       if (method==='POST') { options.headers = {'Content-Type':'application/json'}; options.body = JSON.stringify(data || {}); }
       const response = await fetch(path, options);
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw Error(result.error || `요청 실패 (${response.status})`);
+      if (!response.ok) {
+        const error = Error(result.error || `요청 실패 (${response.status})`);
+        error.status = response.status;
+        throw error;
+      }
       return result;
     } catch (error) { if (error.name==='AbortError') throw Error('서버 응답 시간이 초과됐습니다'); throw error; }
     finally { clearTimeout(timeout); }
@@ -41,12 +46,12 @@
     return position==='COMMON'?latest?.profile?.common?.[pose]:latest?.profile?.positions?.[position]?.[pose];
   }
   function buttons() {
-    const canTeach = connected && latest?.manual && latest?.angles;
+    const canTeach = connected && dataAvailable && latest?.manual && latest?.angles;
     const moving = latest?.move?.state==='MOVING';
     document.querySelectorAll('[data-save]').forEach(button => { button.disabled = !canTeach || busy || moving; });
     document.querySelectorAll('[data-move]').forEach(button => { button.disabled = !canTeach || busy || !record(button.dataset.position,button.dataset.pose); });
     $('arm-stop').disabled = !connected;
-    $('teaching-toggle').disabled = busy || !connected || !latest?.can_switch_teaching;
+    $('teaching-toggle').disabled = busy || !connected || !dataAvailable || !latest?.can_switch_teaching;
     joints.forEach(([name]) => { $(`slider-${name}`).disabled = busy || !canTeach; });
     document.querySelectorAll('[data-jog]').forEach(button => { button.disabled = busy || !canTeach; });
   }
@@ -66,10 +71,21 @@
   function angleText(angles) {
     return joints.filter(([name]) => name in angles).map(([name,label]) => `${label} ${Number(angles[name]).toFixed(1)}°`).join(' · ');
   }
+  function dataError(error) {
+    dataAvailable = false;
+    connection(Boolean(error.status));
+    if (error.status) {
+      $('mode-notice').hidden = false;
+      $('mode-notice').textContent = `서버에는 연결됐지만 팔 저장 데이터를 읽지 못했습니다: ${error.message}`;
+      $('move-label').textContent = '저장 데이터 확인 필요';
+      joints.forEach(([name]) => { $(`joint-${name}`).textContent = '—'; });
+    }
+  }
   function render(data) {
     if (!data.profile?.positions || !data.profile?.common) throw Error('자리별 자세 데이터를 읽을 수 없습니다');
     if (latest && data.session_id===latest.session_id && data.control_revision<latest.control_revision) return;
     latest = data;
+    dataAvailable = true;
     $('preview-banner').hidden = !data.preview;
     $('legacy-link').hidden = $('legacy-nav').hidden = !data.legacy_available;
     $('angle-eyebrow').textContent = data.preview?'SIMULATED ANGLES · PREVIEW ONLY':'CURRENT COMMANDED ANGLES';
@@ -119,10 +135,14 @@
     $('move-label').textContent = move?`${data.preview?'가상 ':''}${moveName} · ${labels[move.state] || move.state}${move.error?' · '+move.error:''}`:'팔 동작 대기';
     connection(true);
   }
-  async function refresh() { render(await request('/positions/data')); }
+  async function refresh() {
+    const data = await request('/positions/data');
+    try { render(data); }
+    catch(error) { error.status = 200; throw error; }
+  }
   async function poll() {
     if (!busy && !$('confirm-dialog').open) {
-      try { await refresh(); } catch (error) { connection(false); }
+      try { await refresh(); } catch (error) { dataError(error); }
     }
     setTimeout(poll,700);
   }
@@ -130,7 +150,7 @@
     if (latest?.preview && !latest.supports_joint_control) render(await request('/positions/preview/angles','POST',{angles:previewAngles}));
   }
   async function act(kind, position, pose) {
-    if (busy || !connected) return;
+    if (busy || !connected || !dataAvailable) return;
     const version = actionVersion;
     busy = true; buttons();
     try {
@@ -168,10 +188,10 @@
     const slider = $(`slider-${name}`);
     slider.addEventListener('input',() => { editingJoint = name; $(`target-${name}`).textContent = `목표 ${Number(slider.value).toFixed(1)}°`; });
     slider.addEventListener('change',() => adjustJoint(name,Number(slider.value)));
-    slider.addEventListener('blur',() => { if (!busy && editingJoint===name) { editingJoint=null; if (latest) render(latest); } });
+    slider.addEventListener('blur',() => { if (!busy && editingJoint===name) { editingJoint=null; if (latest && dataAvailable) render(latest); } });
   });
   async function adjustJoint(joint, angle) {
-    if (busy || !connected || !latest?.manual) { editingJoint=null; return; }
+    if (busy || !connected || !dataAvailable || !latest?.manual) { editingJoint=null; return; }
     const version = actionVersion;
     busy = true; buttons();
     try {
@@ -180,8 +200,8 @@
       editingJoint = null;
       render(data);
       feedback(`${latest.preview?'가상 ':''}${joints.find(([name]) => name===joint)[1]} 목표 ${angle.toFixed(1)}°로 조절합니다. 도착한 뒤 저장하세요.`);
-    } catch(error) { if (version===actionVersion) { feedback(error.message,true); try { await refresh(); } catch(_) { connection(false); } } }
-    finally { busy=false; editingJoint=null; if (latest) render(latest); }
+    } catch(error) { if (version===actionVersion) { feedback(error.message,true); try { await refresh(); } catch(loadError) { dataError(loadError); } } }
+    finally { busy=false; editingJoint=null; if (latest && dataAvailable) render(latest); }
   }
   document.querySelectorAll('[data-jog]').forEach(button => button.addEventListener('click',() => {
     const joint = button.dataset.jog, slider = $(`slider-${joint}`);
@@ -192,7 +212,7 @@
     adjustJoint(joint,angle);
   }));
   $('teaching-toggle').addEventListener('click',async() => {
-    if (busy || !connected || !latest?.can_switch_teaching) return;
+    if (busy || !connected || !dataAvailable || !latest?.can_switch_teaching) return;
     const version = actionVersion;
     busy = true; buttons();
     try {
@@ -203,7 +223,7 @@
       render(data);
       feedback(enabled?'주행을 멈췄습니다. 이제 이 화면에서 팔 각도를 맞추고 저장하세요.':'팔 조절을 종료했습니다. 미션 시작 버튼을 누르기 전까지 대기합니다.');
     } catch(error) { if (version===actionVersion) feedback(error.message,true); }
-    finally { busy=false; if (latest) render(latest); }
+    finally { busy=false; if (latest && dataAvailable) render(latest); }
   });
   $('arm-stop').addEventListener('click',async() => {
     actionVersion += 1;
