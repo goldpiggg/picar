@@ -23,7 +23,7 @@ class MissionConfig:
     pulse_min_seconds: float = 0.08
     pulse_max_seconds: float = 0.4
     max_pulses: int = 15
-    reverse_correction_enabled: bool = False
+    reverse_correction_enabled: bool = True
     battery_fallback_volts: float = 7.4
     distance_offset_cm: float = 0.0
     camera_backend: str = 'usb'

@@ -130,8 +130,8 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(state['state'],'PULSING')
         self.assertEqual(h.drive.commands[-1],('backward',42.9))
 
-    def test_default_overshoot_stops_and_never_reverses_or_resumes(self):
-        h=Harness();h.echo(80.);h.near(37.)
+    def test_explicitly_disabled_reverse_stops_and_never_resumes(self):
+        h=Harness(cfg=replace(instant_steering(),reverse_correction_enabled=False));h.echo(80.);h.near(37.)
         state=h.settle(27.)
         self.assertEqual(state['state'],'ERROR')
         self.assertIn('TARGET_OVERSHOOT',state['error'])
@@ -140,6 +140,47 @@ class DirectTests(unittest.TestCase):
         for distance in (27.,80.,30.):h.echo(distance)
         self.assertEqual(h.drive.commands,before)
         self.assertFalse(any(c[0]=='backward' for c in h.drive.commands))
+
+    def test_default_reverse_corrects_to_target_and_stays_stopped(self):
+        h=Harness();h.echo(80.);h.near(37.)
+        self.assertEqual(h.settle(27.)['state'],'PULSING')
+        self.assertLessEqual(h.controller.pulse_duration,.15)
+        self.assertEqual(h.finish_pulse()['state'],'PULSE_SETTLE')
+        self.assertEqual(h.drive.commands[-1],('stop',0))
+        self.assertEqual(h.settle(30.)['state'],'STOPPED_WAIT')
+        before=list(h.drive.commands)
+        h.echo(80.)
+        self.assertEqual(h.drive.commands,before)
+
+    def test_reverse_does_not_lengthen_or_repeat_without_progress(self):
+        for after in (27.,26.):
+            h=Harness();h.echo(80.);h.near(37.)
+            h.settle(27.);h.finish_pulse()
+            state=h.settle(after)
+            self.assertEqual(state['state'],'ERROR')
+            self.assertIn('REVERSE_NO_PROGRESS',state['error'])
+            self.assertEqual(sum(c[0]=='backward' for c in h.drive.commands),1)
+            self.assertEqual(h.drive.commands[-1],('stop',0))
+
+    def test_reverse_pulses_have_separate_count_and_duration_limits(self):
+        h=Harness(cfg=replace(instant_steering(),pulse_seconds=.4,pulse_max_seconds=.8))
+        h.echo(80.);h.near(37.)
+        for distance in (24.,24.5,25.):
+            self.assertEqual(h.settle(distance)['state'],'PULSING')
+            self.assertLessEqual(h.controller.pulse_duration,.15)
+            h.finish_pulse()
+            self.assertEqual(h.drive.commands[-1],('stop',0))
+        state=h.settle(25.5)
+        self.assertEqual(state['error'],'REVERSE_PULSE_LIMIT_REACHED')
+        self.assertEqual(state['reverse_pulse_count'],3)
+
+    def test_reverse_sensor_jump_never_resumes_cruise(self):
+        h=Harness();h.echo(80.);h.near(37.)
+        h.settle(27.);h.finish_pulse();before=len(h.drive.commands)
+        state=h.settle(60.)
+        self.assertEqual(state['state'],'ERROR')
+        self.assertIn('REVERSE_DISTANCE_JUMP',state['error'])
+        self.assertTrue(all(c[0]=='stop' for c in h.drive.commands[before:]))
 
     def test_stalled_pulse_is_lengthened_within_limits(self):
         h=Harness();h.echo(80.);h.near(37.)

@@ -19,6 +19,8 @@ ZONE_SAMPLES = 3          # Fresh echoes whose median must be inside pulse_zone_
 ZONE_EXIT_MARGIN_CM = 2.  # Settled this far beyond the zone: it was a false entry.
 REFERENCE_VOLTS = 7.     # Must match Server/Move.py REFERENCE_VOLTS.
 QR_DECODE_GRACE_SECONDS = .6  # Final stationary view: finish a slow Pi decode.
+MAX_REVERSE_PULSES = 3
+MAX_REVERSE_SECONDS = .15
 
 
 class DirectMissionController(MissionController):
@@ -61,7 +63,7 @@ class DirectMissionController(MissionController):
                          stop_reason=None,target_stop_latched=False,steer_deg=0,
                          heading_status='OFF' if not self._heading_enabled() else 'WAITING',
                          heading_error_deg=None,battery_volts=None,battery_source=None,
-                         cruise_pwm=None,pulse_pwm=None,pulse_count=0,last_pulse_seconds=None,
+                         cruise_pwm=None,pulse_pwm=None,pulse_count=0,reverse_pulse_count=0,last_pulse_seconds=None,
                          pulse_cm_per_second=None,final_distance_cm=None)
 
     def snapshot(self):
@@ -398,6 +400,8 @@ class DirectMissionController(MissionController):
         self.data['distance_cm'] = round(distance,3)
         self._learn_pulse(distance)
         if distance > self.cfg.pulse_zone_cm+ZONE_EXIT_MARGIN_CM:
+            if self.data['reverse_pulse_count']:
+                raise SensorFault('REVERSE_DISTANCE_JUMP: refusing to resume cruise after reverse correction')
             # Still far from the target: drive there instead of spending pulses.
             self.zone_values.clear()
             emit('pulse_zone_exit',distance_cm=round(distance,2))
@@ -417,6 +421,11 @@ class DirectMissionController(MissionController):
         if self.pulse_from_cm is None:
             return
         moved = (self.pulse_from_cm-distance)*self.pulse_direction
+        if self.pulse_direction < 0:
+            if moved < .3 and abs(distance-self.cfg.target_distance_cm) > self.cfg.stop_tolerance_cm:
+                raise SensorFault('REVERSE_NO_PROGRESS: stopped distance did not increase after reverse pulse')
+            if moved > self.cfg.max_closing_speed_cm_s*self.pulse_duration+self.cfg.distance_jump_slack_cm:
+                raise SensorFault('REVERSE_DISTANCE_JUMP: implausible distance change after reverse pulse')
         if moved >= .3:
             self.cm_per_second = moved/self.pulse_duration
         else:
@@ -431,6 +440,10 @@ class DirectMissionController(MissionController):
     def _send_pulse(self, direction, remaining_cm, distance, now):
         seconds = remaining_cm/self.cm_per_second if self.cm_per_second else self.next_pulse_seconds
         seconds = max(self.cfg.pulse_min_seconds,min(self.cfg.pulse_max_seconds,seconds))
+        if direction < 0:
+            if self.data['reverse_pulse_count'] >= MAX_REVERSE_PULSES:
+                raise SensorFault('REVERSE_PULSE_LIMIT_REACHED')
+            seconds = min(seconds,MAX_REVERSE_SECONDS)
         timed_pulse = getattr(self.drive,'pulse',None)
         if timed_pulse is not None:
             timed_pulse(direction,self.pulse_pwm,seconds)
@@ -440,6 +453,8 @@ class DirectMissionController(MissionController):
         self.pulse_direction, self.pulse_duration, self.pulse_from_cm = direction, seconds, distance
         self.pulse_until = now+seconds
         self.data.update(pulse_count=self.data['pulse_count']+1,last_pulse_seconds=round(seconds,3))
+        if direction < 0:
+            self.data['reverse_pulse_count'] += 1
         emit('pulse_command',action='forward' if direction > 0 else 'backward',
              pwm=self.pulse_pwm,seconds=round(seconds,3),distance_cm=round(distance,2))
         self._state('PULSING',now)
