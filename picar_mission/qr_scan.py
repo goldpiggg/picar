@@ -145,18 +145,57 @@ class QRReader:
         ok, texts, points, _ = self.detector.detectAndDecodeMulti(frame)
         if not ok or points is None:
             return []
-        height, width = frame.shape[:2]
+        return self._results(frame, texts, points)
+
+    def detect_side(self, frame):
+        """PICK and PLACE seen from the side, small and tilted in the frame.
+
+        At 640x480 the plain multi decoder misses codes under about 90 px; a
+        2x upscale recovers them, and decoding each half alone recovers a
+        pair the multi decoder splits. The fallbacks only run while a code is
+        still missing, so a clear view costs the same as detect().
+        """
+        found = self.detect(frame)
+        if self._pair(found):
+            return found
+        cv2 = self.cv2
+        big = cv2.resize(frame, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        ok, texts, points, _ = self.detector.detectAndDecodeMulti(big)
+        if ok and points is not None:
+            found = self._merge(found, self._results(big, texts, points, scale=2))
+            if self._pair(found):
+                return found
+        width = big.shape[1]
+        for x0, x1 in ((0, width*6//10), (width*4//10, width)):
+            text, corners, _ = self.detector.detectAndDecode(big[:, x0:x1])
+            if text and corners is not None:
+                found = self._merge(found, self._results(big, [text], corners.reshape(1, 4, 2), scale=2, x_offset=x0))
+        return found
+
+    @staticmethod
+    def _pair(found):
+        return {'PICK', 'PLACE'} <= {item['label'] for item in found}
+
+    @staticmethod
+    def _merge(found, more):
+        # Keep the first reading of each code; another try may see it again.
+        labels = {item['label'] for item in found}
+        return found+[item for item in more if item['label'] not in labels]
+
+    def _results(self, image, texts, points, scale=1, x_offset=0):
+        """Detections in the original frame's pixels, whatever image was decoded."""
+        height, width = image.shape[:2]
         results = []
         for text, corners in zip(texts, points):
             if not text:
                 continue
-            polygon = [[float(x), float(y)] for x, y in corners.reshape(4, 2)]
+            polygon = [[(float(x)+x_offset)/scale, float(y)/scale] for x, y in corners.reshape(4, 2)]
             cx = sum(p[0] for p in polygon) / 4
             cy = sum(p[1] for p in polygon) / 4
             results.append({'text': text, 'label': normalize(text),
                             'corners_px': polygon,
                             'center_px': [cx, cy],
-                            'center_normalized': [cx / width, cy / height]})
+                            'center_normalized': [cx*scale / width, cy*scale / height]})
         return results
 
 

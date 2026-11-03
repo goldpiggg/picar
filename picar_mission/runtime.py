@@ -40,6 +40,8 @@ class MissionRuntime:
             'pending_stages': ['approach_to_target', 'arm_transfer'],
             'detections': [], 'candidate': None, 'consecutive_frames': 0,
             'frames_processed': 0, 'last_frame_time': None, 'last_camera_time': None,
+            # Time the last frame took to decode, for checking a slow camera view.
+            'decode_ms': None,
             'error': None,
         }
 
@@ -120,9 +122,12 @@ class MissionRuntime:
             self._discard_frames()
             return True
 
-    def _stale(self, captured_at):
+    def _stale(self, captured_at, decoded=False):
         # A stale frame breaks the consecutive-frame streak of either gate.
-        if captured_at >= self.scan_after and self.clock()-captured_at <= self.config.max_frame_age_seconds:
+        # PICK/PLACE order does not age: a slow decode of a frame taken after
+        # the scan began still counts, or a slow Pi would discard every one.
+        fresh = decoded and self.data['state'] == 'WAIT_SIDE_QR' or             self.clock()-captured_at <= self.config.max_frame_age_seconds
+        if captured_at >= self.scan_after and fresh:
             return False
         if self.data['state'] == 'WAIT_QR':
             self.gate.update([], captured_at)
@@ -142,15 +147,18 @@ class MissionRuntime:
             self.last_sequence = sequence
             if self._stale(captured_at):
                 return None
-            epoch = self.scan_epoch
-        detections = reader.detect(frame)
+            epoch, state = self.scan_epoch, self.data['state']
+        side = state == 'WAIT_SIDE_QR' and hasattr(reader, 'detect_side')
+        began = time.monotonic()
+        detections = reader.detect_side(frame) if side else reader.detect(frame)
+        decode_ms = round(1000*(time.monotonic()-began))
         direction = layout = start = None
         with self.lock:
             if self.data['state'] not in SCANNING or self.stop_event.is_set() or epoch != self.scan_epoch:
                 return None
-            if self._stale(captured_at):
+            if self._stale(captured_at, decoded=True):
                 return None
-            self.data.update(detections=detections,
+            self.data.update(detections=detections,decode_ms=decode_ms,
                              layout_preview=classify_layout(detections, self.config.layout_min_gap),
                              frames_processed=self.data['frames_processed']+1,
                              last_frame_time=captured_at)
