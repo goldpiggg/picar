@@ -1,4 +1,4 @@
-"""One QR -> settle steering -> slow forward with gyro heading hold -> pulses to target.
+"""One QR -> forward/pulses to target -> BASE toward that side -> wait.
 
 Motor power is set in volts and sent as percent of Move.REFERENCE_VOLTS (7 V);
 Move.py rescales that by the measured battery, so any charge drives the same.
@@ -19,11 +19,12 @@ REFERENCE_VOLTS = 7.     # Must match Server/Move.py REFERENCE_VOLTS.
 
 
 class DirectMissionController(MissionController):
-    def __init__(self, *args, read_heading=None, read_battery=None, **kwargs):
+    def __init__(self, *args, read_heading=None, read_battery=None, qr_preparation=None, **kwargs):
         kwargs['_precision'] = False
         super().__init__(*args, **kwargs)
         self.read_heading = read_heading
         self.read_battery = read_battery
+        self.qr_preparation = qr_preparation
         self.heading_ref = None
         self.target_stop_latched = False
         self.distance_retry_at = None
@@ -38,17 +39,35 @@ class DirectMissionController(MissionController):
         self.measure_values, self.measure_last = [], None
         self.zone_values, self.zone_last = deque(maxlen=ZONE_SAMPLES), None
         self.data.update(drive_mode='direct', configured_speed=None,
-                         implemented_stages=['qr_recognition','direct_approach','pulse_approach'],
+                         implemented_stages=['qr_recognition','direct_approach','pulse_approach','qr_view_preparation'],
+                         pending_stages=['qr_view_preparation','pick_place_qr','arm_transfer'],
+                         qr_view_ready=False,arm_requested=True,
+                         arm_blocked_reason=None if qr_preparation is not None else 'QR_PREPARATION_UNAVAILABLE',
                          stop_reason=None,target_stop_latched=False,steer_deg=0,
                          heading_status='OFF' if not self._heading_enabled() else 'WAITING',
                          heading_error_deg=None,battery_volts=None,battery_source=None,
                          cruise_pwm=None,pulse_pwm=None,pulse_count=0,last_pulse_seconds=None,
                          pulse_cm_per_second=None,final_distance_cm=None)
-        if self.arm is not None:
-            self.data['implemented_stages'].append('arm_transfer_sequence')
+
+    def snapshot(self):
+        with self.lock:
+            result = super().snapshot()
+            result['qr_preparation'] = None if self.qr_preparation is None else self.qr_preparation.snapshot()
+            return result
+
+    def cancel(self, reason='USER_STOP'):
+        with self.lock:
+            if self.qr_preparation is not None:
+                self.qr_preparation.cancel()
+            super().cancel(reason)
 
     def fail(self, reason):
-        super().fail(reason)
+        with self.lock:
+            try:
+                if self.qr_preparation is not None:
+                    self.qr_preparation.cancel()
+            finally:
+                super().fail(reason)
         emit('drive_error',reason=str(reason),command_speed=0)
 
     def _stop_at_target(self, now, distance):
@@ -66,13 +85,13 @@ class DirectMissionController(MissionController):
         self.data['approach_complete'] = True
         self.stop_at = max(now,self.clock())
         emit('drive_command',action='stop',pwm=0,distance_cm=round(distance,3))
-        if self.cfg.arm_enabled and self.arm is not None and self.arm.profile.calibrated:
+        if self.qr_preparation is not None:
             self.data.update(automatic_motion_enabled=True,arm_blocked_reason=None,
-                             pending_stages=['box_layout','arm_transfer'])
+                             pending_stages=['qr_view_preparation','pick_place_qr','arm_transfer'])
             self._state('ARM_WAIT',now)
         else:
             self.data.update(automatic_motion_enabled=False,
-                             arm_blocked_reason='DISABLED' if not self.cfg.arm_enabled else 'CALIBRATION_REQUIRED')
+                             arm_blocked_reason='QR_PREPARATION_UNAVAILABLE')
             self._state('STOPPED_WAIT',now)
 
     def _after_stop(self, now):
@@ -82,15 +101,15 @@ class DirectMissionController(MissionController):
             raise RuntimeError('ARM_REQUIRES_STOPPED_DRIVE')
         if self.data['state']=='ARM_WAIT':
             if now-self.stop_at >= self.cfg.arm_start_delay_seconds:
-                self._begin_layout(now)
-        elif self.data['state']=='LAYOUT_WAIT':
-            self._layout_step(now)
-        elif self.data['state']=='ARM_TRANSFER':
-            if self.arm.tick(now)=='COMPLETE':
+                self.qr_preparation.start(self.data['first_direction'],now)
+                self.data['arm_motion_enabled'] = True
+                self._state('QR_TURNING',now)
+        elif self.data['state']=='QR_TURNING':
+            if self.qr_preparation.tick(now)=='READY':
                 self._stop()
                 self.data.update(arm_motion_enabled=False,automatic_motion_enabled=False,
-                                 pending_stages=[])
-                self._state('COMPLETE',now)
+                                 qr_view_ready=True,pending_stages=['pick_place_qr','arm_transfer'])
+                self._state('QR_VIEW_READY',now)
 
     def _read_distance(self, now):
         sample = self.read_sample()

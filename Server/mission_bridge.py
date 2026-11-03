@@ -9,7 +9,8 @@ if str(ROOT) not in sys.path:
 from picar_mission.config import MAX_ARM_JOG_SPEED, load_config
 from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
-from picar_mission.arm_sequence import LAYOUTS, MAX_ARM_SPEED, MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_profile, pose_targets, save_pose as save_arm_pose
+from picar_mission.arm_sequence import LAYOUTS, MAX_ARM_SPEED, MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_motion_profile, load_profile, pose_targets, save_pose as save_arm_pose
+from picar_mission.qr_prepare import QrPreparation
 from picar_mission.arm_positions import PositionStore
 from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
 from picar_mission.heading import GyroHeading
@@ -63,6 +64,12 @@ def _load_profile():
     return profile
 
 
+def _load_motion_profile():
+    profile = load_motion_profile()
+    profile.speed_scale = _arm_speed_percent/100.
+    return profile
+
+
 def arm_jog_speed():
     """Manual ARM button speed in whole degrees/second (RPIservo needs integers)."""
     return max(1,min(MAX_ARM_JOG_SPEED,round(config.arm_jog_speed*_arm_speed_percent/100)))
@@ -70,7 +77,7 @@ def arm_jog_speed():
 
 def arm_speed_status():
     try:
-        profile = _load_profile()
+        profile = _load_motion_profile()
         move, carry = profile.move_speed(False), profile.move_speed(True)
     except (OSError,ValueError,KeyError,TypeError):
         move = carry = None
@@ -88,6 +95,9 @@ def set_arm_speed(percent):
         arm = getattr(controller,'arm',None)
         if arm is not None:
             arm.profile.speed_scale = percent/100.
+        preparation = getattr(controller,'qr_preparation',None)
+        if preparation is not None:
+            preparation.profile.speed_scale = percent/100.
         try:
             ARM_SPEED_FILE.parent.mkdir(parents=True,exist_ok=True)
             ARM_SPEED_FILE.write_text(json.dumps(dict(percent=percent)),encoding='utf-8')
@@ -98,10 +108,14 @@ def set_arm_speed(percent):
 
 
 def _make_controller():
-    arm = ArmSequence(ArmAdapter(_servo),_load_profile()) if config.arm_enabled else None
+    # This stage ends at a side-facing QR view. A previously enabled legacy
+    # transfer plan must not bypass that wait or open the gripper.
+    profile = _load_motion_profile()
+    preparation = QrPreparation(ArmAdapter(_servo),profile,
+        {'LEFT': config.qr_prepare_left_base_deg, 'RIGHT': config.qr_prepare_right_base_deg},
+        speed=lambda:min(arm_jog_speed(),profile.move_speed(True)))
     return DirectMissionController(config,DriveAdapter(_move,_servo),
-        _ultrasound.read_sample,runtime.snapshot,arm_sequence=arm,
-        request_layout=runtime.request_layout,
+        _ultrasound.read_sample,runtime.snapshot,qr_preparation=preparation,
         read_heading=None if gyro is None else gyro.read_sample,
         read_battery=_read_battery_volts)
 
@@ -306,6 +320,7 @@ def _dashboard_status(result):
         camera_online=camera_online,
         camera_generation=_camera_generation,
         camera_error=_camera_error,
+        arm_mode='qr_prepare_only',
         arm_enabled=config.arm_enabled,
         control_revision=_control_revision,
         session_id=SESSION_ID,

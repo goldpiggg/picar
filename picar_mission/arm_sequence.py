@@ -32,7 +32,12 @@ def number(value):
     return type(value) in (int,float) and math.isfinite(value)
 
 
-class ArmProfile:
+class ArmMotionProfile:
+    """Limits and motion settings without requiring a transfer-pose schema.
+
+    Base-only QR preparation can use these settings even when a saved plan
+    uses old pose names. Reading them never migrates or rewrites that file.
+    """
     speed_scale = 1.  # Dashboard arm speed; 1.5 moves 50% faster, capped at MAX_ARM_SPEED.
 
     def __init__(self, values):
@@ -47,19 +52,12 @@ class ArmProfile:
             limits = self.limits[name]
             if not isinstance(limits,list) or len(limits)!=2 or not all(map(number,limits)) or not 0<=limits[0]<limits[1]<=MAX_SERVO_ANGLE:
                 raise ValueError('Invalid limits for '+name)
-        self.positions = values['positions']
-        if LEGACY_POSES & set(self.positions):
-            raise ValueError('Arm poses use the old left_pick/right_place names; reteach the four box poses (left_top_above ...)')
-        if set(self.positions)!=set(POSES):
-            raise ValueError('Arm positions must contain the ten named calibration poses')
         self.gripper = values['gripper_deg']
         if set(self.gripper)!=set(('open','closed')):
             raise ValueError('Require open and closed gripper values')
-        for name,pose in self.positions.items():
-            if set(pose)!=set(JOINTS[:3]):
-                raise ValueError('Pose must contain three arm joints: '+name)
-            self.check_angles({**pose,'gripper':self.gripper['open']})
-        self.check_angles({**self.positions['center_clear'],'gripper':self.gripper['closed']})
+        neutral = {name: self.limits[name][0] for name in JOINTS[:3]}
+        for grip in self.gripper.values():
+            self.check_angles({**neutral, 'gripper': grip})
         for key in ('speed_deg_per_second','settle_seconds','grip_settle_seconds',
                     'step_timeout_seconds','sequence_timeout_seconds'):
             if not number(values.get(key)) or values[key]<=0:
@@ -88,6 +86,20 @@ class ArmProfile:
         for name,value in angles.items():
             if not number(value) or not self.limits[name][0]<=value<=self.limits[name][1]:
                 raise ValueError('Angle outside configured limit: %s %s (allowed %s~%s)'%(name,value,*self.limits[name]))
+
+
+class ArmProfile(ArmMotionProfile):
+    def __init__(self, values):
+        super().__init__(values)
+        self.positions = values['positions']
+        if LEGACY_POSES & set(self.positions):
+            raise ValueError('Arm poses use the old left_pick/right_place names; reteach the four box poses (left_top_above ...)')
+        if set(self.positions)!=set(POSES):
+            raise ValueError('Arm positions must contain the ten named calibration poses')
+        for name,pose in self.positions.items():
+            if set(pose)!=set(JOINTS[:3]):
+                raise ValueError('Pose must contain three arm joints: '+name)
+            self.check_angles({**pose,'gripper':self.gripper['open']})
 
     def plan(self, direction, layout):
         if direction not in ('LEFT','RIGHT'):
@@ -129,6 +141,11 @@ class ArmProfile:
 def load_profile(path=None):
     path = ROOT/'arm_poses.json' if path is None else Path(path)
     return ArmProfile(json.loads(path.read_text(encoding='utf-8')))
+
+
+def load_motion_profile(path=None):
+    path = ROOT/'arm_poses.json' if path is None else Path(path)
+    return ArmMotionProfile(json.loads(path.read_text(encoding='utf-8')))
 
 
 GRIPPER_SLOTS = ('gripper_open','gripper_closed')

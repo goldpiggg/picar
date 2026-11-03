@@ -8,7 +8,7 @@
 
 제조사 코드 전체와 QR·주행·팔 모듈을 포함합니다. **실행 파일은 기존 `Server/WebServer.py`입니다. 새 main.py는 없습니다.**
 
-기본 동작은 **LEFT/RIGHT QR 1회 인식 → 조향 정렬 → 배터리 보정된 느린 속도로 직진(자이로 방향 유지) → 38cm에서 브레이크 → 펄스로 조금씩 움직여 30cm ±1cm에 정지**입니다. 방향은 처음 인식한 값으로 유지합니다. 기본 팔 동작은 꺼져 있습니다.
+기본 동작은 **LEFT/RIGHT QR 1회 인식 → 조향 정렬 → 배터리 보정된 느린 속도로 직진(자이로 방향 유지) → 38cm에서 브레이크 → 펄스로 조금씩 움직여 30cm ±1cm에 정지 → BASE만 해당 방향으로 90° 회전 → 대기**입니다. 중앙 BASE 90° 기준 LEFT는 0°, RIGHT는 180°입니다. PICK·PLACE QR을 보기 위한 준비까지만 실행하며 자동 운반은 시작하지 않습니다. [QR 보기 준비 안내](docs/QR_PREPARATION.md)를 참고하세요.
 
 ## 자주 바꾸는 설정 4개
 
@@ -27,7 +27,7 @@
 
 ```text
 WAIT_QR → STEER_PRELOAD(0.2초) → STEER_SETTLE(0.3초) → DRIVING ─38cm 이하─▶ PULSE_SETTLE ⇄ PULSING
-                                                                              └─ 30±1cm ─▶ STOPPED_WAIT 또는 ARM_WAIT → LAYOUT_WAIT → ARM_TRANSFER
+                                                                              └─ 30±1cm ─▶ ARM_WAIT → QR_TURNING → QR_VIEW_READY(대기)
 ```
 
 - 같은 QR의 연속 프레임이나 추가 확인 시간을 요구하지 않습니다. LEFT/RIGHT 동시 인식, 같은 출발 QR 여러 개, PICK/PLACE만 보이는 경우에는 출발하지 않습니다.
@@ -47,7 +47,7 @@ WAIT_QR → STEER_PRELOAD(0.2초) → STEER_SETTLE(0.3초) → DRIVING ─38cm �
 
 `approach_complete=true`는 차가 멈춘 상태에서 잰 중앙값이 30 ±1cm였다는 뜻입니다. 이때 `target_stop_latched=true`, `final_distance_cm`에 그 거리가 기록되고, 이후 바퀴 전진·후진·조향 명령을 잠급니다. 새 QR이나 거리값으로 잠금을 풀거나 다시 출발하지 않습니다.
 
-팔을 명시적으로 활성화하고 자세 보정까지 확인한 경우에는 `ARM_WAIT`에서 기본 1초를 기다린 뒤 `LAYOUT_WAIT`에서 카메라로 박스 배치를 판단하고, 확정되면 `ARM_TRANSFER`로 넘어갑니다. `layout_timeout_seconds`(5초) 안에 판단하지 못하거나 카메라 오류가 나면 팔을 움직이지 않고 `ERROR`로 끝납니다. 팔이 초음파를 가릴 수 있으므로 정지선 고정 후에는 초음파를 다시 읽지 않습니다. 팔 동작 중과 완료 뒤에도 바퀴 잠금은 유지합니다. 대기 시간 1초는 임시값이며 실제 정착 시간에 맞춰 조정합니다.
+`ARM_WAIT`에서 기본 1초를 기다린 뒤 `QR_TURNING`에서 BASE만 해당 방향으로 돌립니다. 도착하면 `QR_VIEW_READY`에서 대기합니다. 어깨·팔꿈치·집게는 유지하고, PICK/PLACE 배치 판단 요청과 자동 운반은 시작하지 않습니다. 이 준비는 기존 `arm_enabled`·`calibration_confirmed`와 별개이며, 두 설정을 켜도 운반으로 넘어가지 않습니다. 정지선 고정 후에는 초음파를 다시 읽지 않고 바퀴 잠금을 유지합니다. 대기 시간 1초는 임시값이며 실제 정착 시간에 맞춰 조정합니다.
 
 ## 모듈 연결
 
@@ -62,13 +62,13 @@ flowchart TD
     D --> U[Ultra.read_sample 현재 거리]
     D --> M[기존 Move 및 조향 채널 0]
     D --> S[38cm 브레이크 후 펄스로 30±1cm 정지]
-    S --> H[바퀴 잠금 + 팔 활성화·보정된 경우 1초 대기]
-    H --> L[PICK/PLACE QR로 박스 배치 판단]
-    L --> X[배치에 맞춘 팔 순서]
+    S --> H[바퀴 잠금 + 1초 대기]
+    H --> L[BASE만 QR 방향으로 90도 회전]
+    L --> X[QR 보기 준비 완료 · 대기]
     B --> P[웹 상태 /mission/status]
 ```
 
-`mission_controller.py`에는 공통 작업·중지 처리와 기존 정밀 접근 코드가 보관돼 있습니다. 기본 주행은 `DirectMissionController`를 사용하며 이전 정밀 접근 조건을 만들거나 호출하지 않습니다. 팔 모듈은 정지 명령 후 설정한 대기 시간을 거쳐 채널 1~4를 사용하고 조향 채널 0을 사용하지 않습니다.
+`mission_controller.py`에는 공통 작업·중지 처리와 기존 정밀 접근 코드가 보관돼 있습니다. 기본 주행은 `DirectMissionController`를 사용하며 이전 정밀 접근 조건을 만들거나 호출하지 않습니다. 현재 QR 보기 준비는 정지 명령 후 설정한 대기 시간을 거쳐 BASE 채널 1만 사용합니다.
 
 ## 라즈베리파이에서 실행
 
@@ -128,13 +128,15 @@ sudo python3 Server/WebServer.py
 | `distance_offset_cm` | 0.0 | 초음파 거리 보정 |
 | `direct_distance_max_age_seconds` | 0.5 | 사용 가능한 현재 거리값의 최대 나이 |
 | `direct_distance_retry_seconds` | 3.0 | 측정 실패 때 멈춘 채 재측정하는 시간(주행 중, 펄스 후 측정 모두) |
-| `arm_start_delay_seconds` | 1.0 | 바퀴 잠금 후 박스 배치 판단을 시작하기 전 대기, 임시값 |
+| `arm_start_delay_seconds` | 1.0 | 바퀴 잠금 후 BASE 회전 전 대기, 임시값 |
+| `qr_prepare_left_base_deg` | 0.0 | LEFT QR 후 BASE 절대 목표각(중앙 90°에서 왼쪽 90°) |
+| `qr_prepare_right_base_deg` | 180.0 | RIGHT QR 후 BASE 절대 목표각(중앙 90°에서 오른쪽 90°) |
 | `layout_frames` | 3 | 박스 배치가 같은 결과로 연속 몇 프레임 나와야 확정할지 |
 | `layout_min_gap` | 0.05 | 위/아래로 구분할 QR 중심 높이 차이의 최소값(화면 높이 비율) |
 | `layout_timeout_seconds` | 5.0 | 박스 배치를 기다리는 최대 시간. 넘으면 팔을 움직이지 않고 `ERROR` |
 | `approach_timeout_seconds` | 40.0 | 주행 시간 한도 |
 | `auto_approach_enabled` | true | 자동 주행 사용 |
-| `arm_enabled` | false | 보정 완료된 팔 순서 사용 여부 |
+| `arm_enabled` | false | 보관된 운반 기능 설정. 현재 BASE 회전·대기 동작은 이 값과 별개이며 운반으로 넘어가지 않음 |
 | `arm_jog_speed` | 20 | 기본 웹 ARM·집게 버튼 속도(도/초, 정수 1~60). 파일에 없으면 기본값 |
 | `direct_steer_preload_deg` / `_seconds` | 10.0 / 0.2 | 출발 전 가운데로 돌아오기 전에 먼저 보낼 조향각(양수=오른쪽)과 머무는 시간 |
 | `direct_steer_settle_seconds` | 0.3 | 가운데 정렬 후 출발까지 대기 |
@@ -148,7 +150,7 @@ sudo python3 Server/WebServer.py
 
 **자이로 방향 확인(처음 한 번)**: 서버 시작 후 1.5초 동안은 로봇을 움직이지 마세요(자이로 편차 측정). 그다음 `/mission/status`의 `gyro.yaw_deg`를 보면서 로봇을 손으로 왼쪽(반시계)으로 돌렸을 때 값이 **커지면** 정상입니다. 작아지면 `gyro_z_sign=-1`로 바꿉니다. 실제 주행에서는 상태 JSON의 `heading_status`(ACTIVE·GYRO_UNAVAILABLE·OFF), `heading_error_deg`, `steer_deg`와 터미널의 `steer_command` 로그로 보정 동작을 확인합니다. 지그재그로 흔들리면 `heading_gain`을 낮추고, 여전히 휘면 올립니다.
 
-설정 파일은 현재 사용하는 항목만 남겼습니다. 예전 파일에 있던 `direct_speed`·감속·정지 안정 설정은 읽을 수 있지만 현재 직접 주행에서 사용하지 않습니다. 팔이 꺼져 있으면 팔 자세 파일도 불러오지 않습니다. 수동 각도 확인은 팔 설정과 별개로 계속 사용할 수 있습니다.
+설정 파일은 현재 사용하는 항목만 남겼습니다. 예전 파일에 있던 `direct_speed`·감속·정지 안정 설정은 읽을 수 있지만 현재 직접 주행에서 사용하지 않습니다. BASE 준비에는 팔 프로필의 관절 범위·속도 설정을 읽고, 운반 자세는 실행하지 않습니다. 기존 저장값을 새 형식으로 덮어쓰지 않습니다.
 
 카메라는 한 번 열어 QR과 웹 영상이 공유합니다. 초음파는 gpiozero의 실제 echo 획득 시각을 기록합니다. gpiozero 2.x의 `_read()` 인터페이스를 전제로 합니다. 최신 시각으로 같은 잘못된 거리만 반환하는 센서 고장은 단일 초음파만으로 확실히 구분할 수 없습니다.
 

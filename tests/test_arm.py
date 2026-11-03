@@ -384,7 +384,7 @@ class RehearsalTests(unittest.TestCase):
         held=list(servo.nowPos);time.sleep(.1)
         self.assertEqual(servo.nowPos,held)
 
-    def test_enabled_arm_is_wired_into_the_auto_mission(self):
+    def test_enabled_legacy_arm_does_not_bypass_qr_preparation_wait(self):
         from unittest.mock import patch
         bridge=test_approach.OfficialConnectionTests().load_bridge()
         bridge.config=replace(bridge.config,auto_approach_enabled=True,arm_enabled=True,
@@ -395,8 +395,11 @@ class RehearsalTests(unittest.TestCase):
         with patch.object(bridge,'load_profile',calibrated_profile),\
              patch.object(bridge.DirectMissionController,'start',lambda self:None):
             bridge.configure(move,servo,SimpleNamespace(read_sample=lambda:None))
-        self.assertIsInstance(bridge.controller.arm,ArmSequence)
-        self.assertTrue(bridge.controller.arm.profile.calibrated)
+        self.assertIsNone(bridge.controller.arm)
+        self.assertIsNotNone(bridge.controller.qr_preparation)
+        self.assertEqual(bridge.controller.qr_preparation.state,'IDLE')
+        self.assertEqual(bridge.controller.qr_preparation.base_targets,{'LEFT':0.,'RIGHT':180.})
+        self.assertIsNone(bridge.controller.request_layout)
 
 
 class SequenceTests(unittest.TestCase):
