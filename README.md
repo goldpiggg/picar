@@ -4,7 +4,7 @@
 
 `http://로봇IP:5000/dashboard`에서 **미션 시작·전체 중지·새 미션 시작**, QR 인식, LEFT/RIGHT, 초음파 거리, 진행 단계와 경과 시간을 확인합니다. 이 버전은 기본적으로 시작 버튼을 기다린 뒤 QR을 인식해야 출발합니다. 최초 자동 실행 등록과 자세한 사용법은 [WEB_CONTROL.md](docs/WEB_CONTROL.md)를 따르세요. 아래 기존 설명에서 서버 실행 직후 출발한다는 부분은 `web_start_required=false`일 때에 해당합니다.
 
-**로봇팔 속도** 슬라이더(25~300%, 25% 단위)로 팔 자세 이동·운반·ARM 버튼 속도를 함께 바꿉니다. 100%는 `arm_poses.json`의 `speed_deg_per_second`·`carry_speed_deg_per_second`와 `arm_jog_speed` 그대로이고, 최고 속도는 자세 이동 120도/초, 버튼 60도/초로 제한됩니다. 바꾼 값은 미션 중에도 다음 팔 동작부터 적용되고 `data/arm_speed.json`에 저장돼 서버를 재시작해도 유지됩니다.
+**로봇팔 속도** 슬라이더(25~400%, 25% 단위)로 팔 자세 이동·운반·ARM 버튼 속도를 함께 바꿉니다. 100%는 `arm_poses.json`의 `speed_deg_per_second`·`carry_speed_deg_per_second`와 `arm_jog_speed` 그대로이고, 최고 속도는 자세 이동 300도/초, 버튼 150도/초로 제한됩니다. 바꾼 값은 미션 중에도 다음 팔 동작부터 적용되고 `data/arm_speed.json`에 저장돼 서버를 재시작해도 유지됩니다.
 
 제조사 코드 전체와 QR·주행·팔 모듈을 포함합니다. **실행 파일은 기존 `Server/WebServer.py`입니다. 새 main.py는 없습니다.**
 
@@ -140,7 +140,7 @@ sudo python3 Server/WebServer.py
 | `approach_timeout_seconds` | 40.0 | 주행 시간 한도 |
 | `auto_approach_enabled` | true | 자동 주행 사용 |
 | `arm_enabled` | false | 보관된 운반 기능 설정. 현재 BASE 회전·대기 동작은 이 값과 별개이며 운반으로 넘어가지 않음 |
-| `arm_jog_speed` | 20 | 기본 웹 ARM·집게 버튼 속도(도/초, 정수 1~60). 파일에 없으면 기본값 |
+| `arm_jog_speed` | 40 | 기본 웹 ARM·집게 버튼 속도(도/초, 정수 1~150). 파일에 없으면 기본값 |
 | `direct_steer_preload_deg` / `_seconds` | 10.0 / 0.2 | 출발 전 가운데로 돌아오기 전에 먼저 보낼 조향각(양수=오른쪽)과 머무는 시간 |
 | `direct_steer_settle_seconds` | 0.3 | 가운데 정렬 후 출발까지 대기 |
 | `heading_correction_enabled` | true | 자이로 방향 유지 사용 |

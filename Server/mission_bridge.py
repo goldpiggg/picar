@@ -44,7 +44,7 @@ SESSION_ID = uuid.uuid4().hex
 # Dashboard arm speed, percent of arm_poses.json and arm_jog_speed. Kept in
 # data/ so it survives a restart without editing the taught pose file.
 ARM_SPEED_FILE = ROOT / 'data' / 'arm_speed.json'
-ARM_SPEED_MIN, ARM_SPEED_MAX, ARM_SPEED_STEP = 25, 300, 25
+ARM_SPEED_MIN, ARM_SPEED_MAX, ARM_SPEED_STEP = 25, 400, 25
 
 
 def _read_arm_speed():

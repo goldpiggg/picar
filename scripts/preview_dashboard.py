@@ -53,8 +53,8 @@ arm_speed = 100
 
 
 def arm_speed_status():
-    return dict(percent=arm_speed,min=25,max=300,step=25,move_deg_per_second=min(120.,40*arm_speed/100),
-                carry_deg_per_second=min(120.,20*arm_speed/100),jog_deg_per_second=max(1,min(60,round(20*arm_speed/100))))
+    return dict(percent=arm_speed,min=25,max=400,step=25,move_deg_per_second=min(300.,80*arm_speed/100),
+                carry_deg_per_second=min(300.,40*arm_speed/100),jog_deg_per_second=max(1,min(150,round(40*arm_speed/100))))
 
 
 def status():
@@ -121,8 +121,8 @@ def set_arm_speed():
     global arm_speed
     body = request.get_json(silent=True)
     percent = body.get('percent') if isinstance(body,dict) else None
-    if type(percent) is not int or not 25 <= percent <= 300 or percent % 25:
-        return jsonify(error='팔 속도는 25~300% 사이에서 25% 단위로 정하세요'),400
+    if type(percent) is not int or not 25 <= percent <= 400 or percent % 25:
+        return jsonify(error='팔 속도는 25~400% 사이에서 25% 단위로 정하세요'),400
     with lock:
         arm_speed = percent
         return jsonify(arm_speed=arm_speed_status())

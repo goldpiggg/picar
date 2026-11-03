@@ -12,8 +12,8 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 JOINTS = ('base','shoulder','elbow','gripper')
-DEFAULT_CARRY_SPEED = 20.
-MAX_ARM_SPEED = 120.  # degrees/second; also caps the dashboard speed scale.
+DEFAULT_CARRY_SPEED = 40.
+MAX_ARM_SPEED = 300.  # degrees/second; also caps the dashboard speed scale.
 PEAK_SPEED_RATIO = 1.875  # ease() peaks at 1.875x its average speed.
 MAX_TICK_SECONDS = .1  # A stalled loop must not jump ahead on the path.
 MAX_SERVO_ANGLE = 189  # 500~2500us at the original degree scale (RPIservo.ARM_MAX_ANGLE).

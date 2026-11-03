@@ -21,14 +21,14 @@ class ConfigTests(unittest.TestCase):
         c = load_config()
         self.assertEqual((c.target_distance_cm, c.distance_offset_cm), (30., 0.))
         self.assertEqual(c.camera_backend, 'usb')
-        self.assertEqual(c.arm_jog_speed, 20)  # Optional; absent from the shipped file.
+        self.assertEqual(c.arm_jog_speed, 40)  # Optional; absent from the shipped file.
 
     def test_bad_settings_rejected(self):
         for content in ['{"required_frames":0}', '{"hold_seconds":-1}',
                         '{"qr_enabled":"yes"}', '{"camera_backend":"other"}',
                         '{"target_distance_cm":NaN}',
                         '{"arm_enabled":true,"arm_start_delay_seconds":-1}',
-                        '{"arm_jog_speed":0}', '{"arm_jog_speed":61}', '{"arm_jog_speed":10.5}',
+                        '{"arm_jog_speed":0}', '{"arm_jog_speed":151}', '{"arm_jog_speed":10.5}',
                         '{"layout_frames":0}', '{"layout_min_gap":0}', '{"layout_timeout_seconds":0}']:
             with self.subTest(content=content), tempfile.TemporaryDirectory() as d:
                 p = Path(d) / 'config.json'
