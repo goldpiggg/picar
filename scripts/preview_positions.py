@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 
 from flask import jsonify, request
 from picar_mission.arm_positions import JOINTS, PositionStore
-from picar_mission.arm_sequence import ease
+from picar_mission.arm_sequence import PEAK_SPEED_RATIO, ease
 from picar_mission.position_routes import register_position_routes
 from scripts.preview_dashboard import app
 
@@ -94,7 +94,7 @@ class PreviewPositions:
             if not self.store.limits[joint][0] <= angle <= self.store.limits[joint][1]:
                 raise ValueError('허용 각도를 확인하세요')
             self.tick()
-            duration = max(.06,1.875*abs(self.angles[joint]-angle)/10.)
+            duration = max(.06,PEAK_SPEED_RATIO*abs(self.angles[joint]-angle)/10.)
             self.revision += 1
             self.move = dict(name='JOINT / '+joint,state='MOVING',targets={joint:float(angle)},
                 started_at=time.monotonic(),start_angles=dict(self.angles),duration=duration,error=None)

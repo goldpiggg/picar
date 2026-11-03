@@ -16,7 +16,10 @@ POSES_FILE = ROOT/'arm_poses.json'
 JOINTS = ('base','shoulder','elbow','gripper')
 DEFAULT_CARRY_SPEED = 40.
 MAX_ARM_SPEED = 300.  # degrees/second; also caps the dashboard speed scale.
-PEAK_SPEED_RATIO = 1.875  # ease() peaks at 1.875x its average speed.
+# ease() ramps up and down over EASE_RAMP of the move at each end and cruises
+# at peak speed in between, so it peaks at 1/(1-EASE_RAMP) = 1.5x its average.
+EASE_RAMP = 1/3.
+PEAK_SPEED_RATIO = 1/(1-EASE_RAMP)
 MAX_TICK_SECONDS = .1  # A stalled loop must not jump ahead on the path.
 MAX_SERVO_ANGLE = 189  # 500~2500us at the original degree scale (RPIservo.ARM_MAX_ANGLE).
 # Four boxes, two per side. "top" is the row that appears higher in the
@@ -194,11 +197,17 @@ def pose_targets(profile, name):
 
 
 def ease(x):
-    """Minimum-jerk profile: speed and acceleration are zero at both ends, so
-    a loaded joint is never kicked into motion or stopped dead (which made the
-    arm bounce and shake a held object loose)."""
+    """Cosine-ramped cruise: speed and acceleration are zero at both ends, so a
+    loaded joint is never kicked into motion or stopped dead (which made the
+    arm bounce and shake a held object loose). Unlike the minimum-jerk curve it
+    replaced (peak 1.875x average), it holds peak speed through the middle."""
     x = min(max(x,0.),1.)
-    return x*x*x*(10.+x*(6.*x-15.))
+    if x > .5:
+        return 1.-ease(1.-x)
+    a, peak = EASE_RAMP, PEAK_SPEED_RATIO
+    if x < a:
+        return peak/2.*(x-a/math.pi*math.sin(math.pi*x/a))
+    return peak*(x-a/2.)
 
 
 class Motion:
@@ -287,12 +296,14 @@ class ArmSequence:
                 raise RuntimeError('ARM_CLOCK_REVERSED')
             step=self.steps[self.index]
             if self.motion is None:
-                # Slow down whenever an object is (or is about to be) held. A
-                # move that opens the gripper on the way is not carrying.
-                carrying=step['gripper']=='closed' or (self.holding and step['gripper'] is None)
                 targets={**step['angles_deg']}
                 if targets['gripper'] is None:
                     targets['gripper']=self.current['gripper']
+                # Slow down whenever an object is (or is about to be) held. A
+                # move that opens the gripper on the way is not carrying, and
+                # neither is closing or opening it with the arm standing still.
+                arm_moves=any(targets[j]!=self.current[j] for j in JOINTS[:3])
+                carrying=arm_moves and (step['gripper']=='closed' or (self.holding and step['gripper'] is None))
                 self.motion=Motion(self.current,targets,self.profile.move_speed(carrying))
                 self.planned_seconds+=self.motion.duration
             # Timeouts count beyond the planned motion time, so a slow carry

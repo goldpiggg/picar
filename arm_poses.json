@@ -26,8 +26,8 @@
   },
   "speed_deg_per_second": 80,
   "carry_speed_deg_per_second": 40,
-  "settle_seconds": 0.5,
-  "grip_settle_seconds": 0.8,
+  "settle_seconds": 0.2,
+  "grip_settle_seconds": 0.3,
   "step_timeout_seconds": 20,
   "sequence_timeout_seconds": 180,
   "positions": {

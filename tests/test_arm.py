@@ -403,6 +403,23 @@ class RehearsalTests(unittest.TestCase):
         self.assertIsNone(bridge.controller.request_layout)
 
 
+class EaseTests(unittest.TestCase):
+    def test_curve_starts_and_stops_gently_and_cruises_at_peak(self):
+        from picar_mission.arm_sequence import PEAK_SPEED_RATIO,ease
+        n=3000;xs=[i/n for i in range(n+1)]
+        s=[ease(x) for x in xs]
+        v=[(b-a)*n for a,b in zip(s,s[1:])]
+        acc=[(b-a)*n for a,b in zip(v,v[1:])]
+        self.assertEqual((s[0],s[-1]),(0.,1.))
+        self.assertTrue(all(b>=a for a,b in zip(s,s[1:])))
+        self.assertAlmostEqual(max(v),PEAK_SPEED_RATIO,places=3)
+        self.assertAlmostEqual(PEAK_SPEED_RATIO,1.5)
+        self.assertLess(max(v[0],v[-1]),.001)        # speed zero at both ends
+        self.assertLess(max(abs(acc[0]),abs(acc[-1])),.05)  # and acceleration
+        self.assertLess(max(abs(b-a) for a,b in zip(acc,acc[1:])),.05)  # no step in acceleration
+        self.assertAlmostEqual(ease(.5),.5)
+
+
 class SequenceTests(unittest.TestCase):
     def test_uncalibrated_start_never_reads_or_writes_driver(self):
         driver=FakeArm();s=ArmSequence(driver,load_profile())
@@ -455,7 +472,7 @@ class SequenceTests(unittest.TestCase):
     def test_step_timeout_stops_sequence(self):
         data=copy.deepcopy(calibrated_profile().values);data['step_timeout_seconds']=1.
         driver=FakeArm();s=ArmSequence(driver,ArmProfile(data));s.start('LEFT','LEFT_TOP',0.)
-        # First move: 20 deg at 20 deg/s on the eased path takes 1.875 s, so the
+        # First move: 20 deg at 20 deg/s on the eased path takes 1.5 s, so the
         # 1 s timeout counts from there.
         with self.assertRaisesRegex(RuntimeError,'STEP_TIMEOUT'): s.tick(3.)
         self.assertEqual(s.state,'ERROR')
@@ -466,8 +483,9 @@ class SequenceTests(unittest.TestCase):
         fastest={True:0.,False:0.}
         for tick in range(1,20000):
             before=driver.read_angles();step=s.steps[s.index]
-            # A move that opens the gripper (release) is no longer carrying.
-            closed=step['gripper']=='closed' or (s.holding and step['gripper'] is None)
+            # Opening the gripper on the way, or moving only the gripper, is not carrying.
+            arm_moves=any(step['angles_deg'][j]!=before[j] for j in JOINTS[:3])
+            closed=arm_moves and (step['gripper']=='closed' or (s.holding and step['gripper'] is None))
             s.tick(tick*.02)
             moved=max(abs(driver.angles[j]-before[j]) for j in JOINTS)
             fastest[closed]=max(fastest[closed],moved/.02)

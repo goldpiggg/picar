@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from picar_mission.arm_sequence import ArmProfile, load_motion_profile, load_profile
+from picar_mission.arm_sequence import PEAK_SPEED_RATIO, ArmProfile, load_motion_profile, load_profile
 from picar_mission.config import load_config
 from picar_mission.qr_prepare import QrPreparation
 from test_arm import FakeArm
@@ -88,7 +88,7 @@ class ProductionPreparationTests(unittest.TestCase):
             bridge.set_arm_speed(150)
             preparation.start('RIGHT',0.)
             expected_speed=min(bridge.arm_jog_speed(),preparation.profile.move_speed(True))
-            self.assertAlmostEqual(preparation.move.motion.duration,1.875*90/expected_speed)
+            self.assertAlmostEqual(preparation.move.motion.duration,PEAK_SPEED_RATIO*90/expected_speed)
             duration=preparation.move.motion.duration
             bridge.set_arm_speed(50)
             self.assertEqual(preparation.move.motion.duration,duration)
