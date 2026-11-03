@@ -10,9 +10,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class BatteryAlarm:
-    def __init__(self, settings_path=None, threshold_volts=6.3, clock=time.monotonic):
+    def __init__(self, settings_path=None, threshold_volts=6.3, full_volts=8.4, clock=time.monotonic):
         self.path = None if settings_path is None else Path(settings_path)
         self.threshold_volts = threshold_volts
+        self.full_volts = full_volts
         self.clock = clock
         self.lock = RLock()
         self.interrupt = Event()
@@ -98,7 +99,11 @@ class BatteryAlarm:
     def snapshot(self):
         with self.lock:
             low = self.voltage is not None and self.voltage < self.threshold_volts
+            # Same linear scale as Server/Voltage.py: warning threshold is 0 %, full charge 100 %.
+            percent = None if self.voltage is None else round(min(100., max(0.,
+                (self.voltage-self.threshold_volts)/(self.full_volts-self.threshold_volts)*100)))
             return dict(voltage_volts=None if self.voltage is None else round(self.voltage, 2),
+                battery_percent=percent,
                 threshold_volts=self.threshold_volts, low_voltage=low,
                 sound_enabled=self.sound_enabled, muted=not self.sound_enabled,
                 sounding=self.sounding, settings_error=self.settings_error,
