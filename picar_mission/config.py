@@ -39,8 +39,9 @@ class MissionConfig:
     arm_start_delay_seconds: float = 1.0
     # Center is BASE 90 degrees: look left/right by 90 degrees, BASE only.
     # A larger BASE angle turns left, like the manufacturer's lookleft button.
-    qr_prepare_left_base_deg: float = 180.0
-    qr_prepare_right_base_deg: float = 0.0
+    qr_prepare_left_base_deg: float = 165.0
+    qr_prepare_right_base_deg: float = 7.0
+    qr_scan_timeout_seconds: float = 1.5
     # Elbow change while looking at the side QR codes, from wherever the elbow
     # is then (the reset pose). Negative lowers it, like the web "hand down".
     qr_prepare_elbow_offset_deg: float = -20.0
@@ -144,6 +145,8 @@ def load_config(path=None):
         raise ValueError('side_single_code must be boolean')
     if number('side_qr_settle_seconds') < 0:
         raise ValueError('side_qr_settle_seconds must be nonnegative')
+    if number('qr_scan_timeout_seconds') <= 0:
+        raise ValueError('qr_scan_timeout_seconds must be positive')
     if abs(number('direct_steer_preload_deg')) > 30:
         raise ValueError('Require |direct_steer_preload_deg| <= 30')
     for name in ('direct_steer_preload_seconds', 'direct_steer_settle_seconds', 'heading_deadband_deg'):

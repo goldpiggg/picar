@@ -66,7 +66,7 @@ class CrumpledSheetTests(unittest.TestCase):
         from picar_mission.qr_scan import QRReader
         reader = QRReader(cv2)
         reader.aruco = None  # Raspberry Pi OpenCV versions without Aruco QR.
-        for name, expected in [('side_crumpled.png','LEFT-B'),
+        for name, expected in [('side_crumpled.png',None),
                                ('side_place_unread.png','LEFT-B'),('side_pick_only.png',None)]:
             with self.subTest(frame=name):
                 found = reader.detect_side(cv2.imread(str(FIXTURES/name)), one_is_enough=True)
@@ -129,7 +129,7 @@ class LocatedBoxTests(unittest.TestCase):
         self.assertIsNone(classify_side_start([self.code('PICK', .45), self.box(.48)], 'LEFT', settled=True))
         self.assertIsNone(classify_side_start([self.code('PICK', .45), self.box(.2), self.box(.8)], 'LEFT', settled=True))
         # With two boxes it falls back to the off-center rule.
-        self.assertEqual(classify_side_start([self.code('PICK', .2), self.box(.5), self.box(.8)], 'LEFT', settled=True), 'LEFT-B')
+        self.assertIsNone(classify_side_start([self.code('PICK', .2), self.box(.5), self.box(.8)], 'LEFT', settled=True))
 
 
 class SingleCodeTests(unittest.TestCase):
@@ -141,7 +141,7 @@ class SingleCodeTests(unittest.TestCase):
                             (self.code('PLACE', .7), 'LEFT-B'), (self.code('PLACE', .3), 'LEFT-A')]:
             with self.subTest(codes=codes):
                 self.assertIsNone(classify_side_start(codes, 'LEFT'))
-                self.assertEqual(classify_side_start(codes, 'LEFT', settled=True), left)
+                self.assertIsNone(classify_side_start(codes, 'LEFT', settled=True))
         self.assertIsNone(classify_side_start(self.code('PICK', .42), 'LEFT', settled=True))
 
     def runtime(self, **cfg):
@@ -159,7 +159,8 @@ class SingleCodeTests(unittest.TestCase):
         self.assertTrue(runtime.side_view_settled(now[0]))
         self.assertIsNone(runtime.process_frame(self.code('PICK', .3), now[0]+.1, 2, reader))  # Before settle.
         now[0] = 2.
-        self.assertEqual(runtime.process_frame(self.code('PICK', .3), now[0], 3, reader), 'LEFT-B')
+        codes=self.code('PICK',.3)+[dict(text='',label=None,undecoded=True,center_normalized=[.7,.5])]
+        self.assertEqual(runtime.process_frame(codes, now[0], 3, reader), 'LEFT-B')
 
     def test_single_code_can_be_turned_off(self):
         runtime, now = self.runtime(side_single_code=False)

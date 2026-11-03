@@ -10,7 +10,7 @@ from picar_mission.config import MAX_ARM_JOG_SPEED, load_config
 from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
 from picar_mission.arm_sequence import LAYOUTS, MAX_ARM_SPEED, MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_motion_profile, load_profile, pose_targets, save_pose as save_arm_pose
-from picar_mission.qr_prepare import ArmReset, QrPreparation
+from picar_mission.qr_prepare import ArmReset, QrPreparation, side_view_targets
 from picar_mission import arm_positions
 from picar_mission.arm_positions import PositionStore
 from picar_mission.position_transfer import PositionArmProfile, fast_motion_values
@@ -122,8 +122,15 @@ def _make_controller():
         scale = profile.speed_scale
         profile = ArmMotionProfile(fast_motion_values(profile.values))
         profile.speed_scale = scale
-    preparation = QrPreparation(ArmAdapter(_servo),profile,
-        {'LEFT': config.qr_prepare_left_base_deg, 'RIGHT': config.qr_prepare_right_base_deg},
+    positions, positions_error = None, None
+    if config.arm_enabled:
+        try:
+            positions = _position_store().read()
+        except (OSError,ValueError,KeyError,TypeError) as exc:
+            positions_error = str(exc)
+    targets = side_view_targets(positions,profile.limits,
+        {'LEFT': config.qr_prepare_left_base_deg, 'RIGHT': config.qr_prepare_right_base_deg})
+    preparation = QrPreparation(ArmAdapter(_servo),profile,targets,
         speed=lambda:min(arm_jog_speed(),profile.move_speed(True)),
         elbow_offset=config.qr_prepare_elbow_offset_deg)
     initial = getattr(_servo,'initPos',[90.]*8)
@@ -134,7 +141,9 @@ def _make_controller():
     transfer, blocked = None, None
     if config.arm_enabled:
         try:
-            transfer_profile = PositionArmProfile(profile.values,_position_store().read())
+            if positions is None:
+                raise ValueError(positions_error or 'ARM_POSES_INCOMPLETE')
+            transfer_profile = PositionArmProfile(profile.values,positions)
             transfer_profile.speed_scale = profile.speed_scale
             transfer = ArmSequence(ArmAdapter(_servo),transfer_profile)
         except (OSError,ValueError,KeyError,TypeError) as exc:
@@ -144,6 +153,7 @@ def _make_controller():
         transfer_blocked_reason=blocked,
         arm_reset=reset,on_reset_complete=runtime.begin_start_scan,request_side_qr=runtime.request_side_qr,
         settle_side_qr=runtime.side_view_settled,
+        view_scan_enabled=True,
         read_heading=None if gyro is None else gyro.read_sample,
         read_battery=_read_battery_volts)
 

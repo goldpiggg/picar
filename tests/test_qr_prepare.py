@@ -40,9 +40,9 @@ class ElbowTiltTests(unittest.TestCase):
 
 
 class PreparationSettingsTests(unittest.TestCase):
-    def test_defaults_are_ninety_degrees_either_side_of_center(self):
+    def test_defaults_look_between_the_two_boxes(self):
         cfg=load_config()
-        self.assertEqual((cfg.qr_prepare_left_base_deg,cfg.qr_prepare_right_base_deg),(180.,0.))
+        self.assertEqual((cfg.qr_prepare_left_base_deg,cfg.qr_prepare_right_base_deg),(165.,7.))
         self.assertTrue(cfg.arm_enabled)
 
     def test_invalid_turn_targets_and_delay_are_rejected(self):
@@ -88,7 +88,7 @@ class ProductionPreparationTests(unittest.TestCase):
             bridge.set_arm_speed(150)
             preparation.start('RIGHT',0.)
             expected_speed=min(bridge.arm_jog_speed(),preparation.profile.move_speed(True))
-            self.assertAlmostEqual(preparation.move.motion.duration,PEAK_SPEED_RATIO*90/expected_speed)
+            self.assertAlmostEqual(preparation.move.motion.duration,PEAK_SPEED_RATIO*abs(90-preparation.target)/expected_speed)
             duration=preparation.move.motion.duration
             bridge.set_arm_speed(50)
             self.assertEqual(preparation.move.motion.duration,duration)
@@ -117,6 +117,7 @@ class ProductionPreparationTests(unittest.TestCase):
         bridge._mission_started=True
         bridge.runtime.data.update(first_direction='RIGHT',state='DIRECTION_CONFIRMED')
         controller=bridge.controller
+        controller.view_scan_enabled=False  # Initial target test; search is covered separately.
         controller.clock=lambda:now[0]
         def tick(value,dt=.1):
             distance[0]=value
@@ -140,7 +141,7 @@ class ProductionPreparationTests(unittest.TestCase):
         self.assertEqual(status['dashboard']['remaining_cm'],0.)
         self.assertEqual(status['dashboard']['distance_source'],'FINAL')
         # RIGHT turns BASE down to 0 and lowers the elbow 20 degrees to see both codes.
-        self.assertEqual(servo.nowPos[1:5],[0.,81.,83.,145.])
+        self.assertEqual(servo.nowPos[1:5],[7.,81.,83.,145.])
         self.assertEqual({channel for channel,angle in writes},{1,3})
         self.assertEqual(status['qr_preparation']['elbow_target_deg'],83.)
         self.assertIsNone(controller.arm)

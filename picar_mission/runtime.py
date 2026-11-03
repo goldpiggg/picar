@@ -27,6 +27,7 @@ class MissionRuntime:
         self.scan_after = float('-inf')
         # Frames captured from here on see the finished turn (side_view_settled).
         self.side_settled_after = float('inf')
+        self.side_settle_seconds = self.config.side_qr_settle_seconds
         self.data = {
             'state': 'WAIT_QR' if self.config.qr_enabled else 'DISABLED',
             'first_direction': None,
@@ -114,10 +115,12 @@ class MissionRuntime:
 
     def request_side_qr(self, direction, not_before):
         with self.lock:
-            if self.stop_event.is_set() or self.data['state'] != 'DIRECTION_CONFIRMED' or direction != self.data['first_direction']:
+            if self.stop_event.is_set() or self.data['state'] not in ('DIRECTION_CONFIRMED','WAIT_SIDE_QR') or direction != self.data['first_direction']:
                 return False
+            rescanning = self.data['state'] == 'WAIT_SIDE_QR'
             self.scan_epoch += 1
-            self.scan_after = max(self.clock(), not_before)+self.config.side_qr_settle_seconds
+            self.side_settle_seconds = min(.05,self.config.side_qr_settle_seconds) if rescanning else self.config.side_qr_settle_seconds
+            self.scan_after = max(self.clock(), not_before)+self.side_settle_seconds
             self.side_gate = SideQrGate(self.config.layout_frames, self.config.layout_min_gap, self.config.max_gap_seconds)
             self.side_settled_after = float('inf')
             self.data.update(state='WAIT_SIDE_QR', side_direction=direction,
@@ -131,7 +134,7 @@ class MissionRuntime:
         with self.lock:
             if self.data['state'] != 'WAIT_SIDE_QR' or not self.config.side_single_code:
                 return False
-            self.side_settled_after = max(self.clock(), now)+self.config.side_qr_settle_seconds
+            self.side_settled_after = max(self.clock(), now)+self.side_settle_seconds
             return True
 
     def _stale(self, captured_at, decoded=False):

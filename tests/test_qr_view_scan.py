@@ -1,0 +1,83 @@
+"""View centering, bounded yaw search, early success and cancellation."""
+from dataclasses import replace
+import unittest
+from picar_mission.qr_prepare import QrPreparation,side_view_targets
+from picar_mission.arm_sequence import ArmSequence
+from picar_mission.runtime import MissionRuntime
+from picar_mission.config import MissionConfig
+from test_direct_mission import Harness
+from test_arm import FakeArm,load_profile
+from test_position_transfer import profile,taught
+
+
+class ViewSearchTests(unittest.TestCase):
+    def make(self):
+        h=Harness('LEFT')
+        h.controller.cfg=replace(h.controller.cfg,fast_mission_enabled=True,arm_enabled=True)
+        driver=FakeArm()
+        h.controller.qr_preparation=QrPreparation(driver,load_profile(),{'LEFT':165.,'RIGHT':7.},150.,elbow_offset=-20.)
+        h.controller.arm=ArmSequence(driver,profile(),clock=lambda:h.time)
+        h.controller.view_scan_enabled=True
+        h.controller.request_side_qr=lambda side,now:True
+        h.echo(80.);h.near(36.);h.settle(30.)
+        for _ in range(100):
+            h.echo(None,dt=.02)
+            if h.controller.snapshot()['state']=='SIDE_QR_WAIT':break
+        self.assertEqual(h.controller.snapshot()['state'],'SIDE_QR_WAIT')
+        return h,driver
+
+    def test_center_uses_both_approach_angles_and_missing_slots_use_fallback(self):
+        data=taught();limits=load_profile().limits
+        expected={side:sum(data['positions'][side+'-'+row]['approach']['angles_deg']['base'] for row in ('A','B'))/2 for side in ('LEFT','RIGHT')}
+        self.assertEqual(side_view_targets(data,limits,{'LEFT':165.,'RIGHT':7.}),expected)
+        data['positions']['LEFT-A']['approach']=None
+        self.assertEqual(side_view_targets(data,limits,{'LEFT':165.,'RIGHT':7.})['LEFT'],165.)
+
+    def test_first_view_success_starts_transfer_without_extra_scanning(self):
+        h,driver=self.make();before=driver.angles['base']
+        h.qr['sequence_selection']={'start_position':'LEFT-B'}
+        h.controller.step()
+        self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
+        self.assertEqual(driver.angles['base'],before)
+        self.assertEqual(h.controller.qr_preparation.scan_targets,[155.,175.])
+
+    def test_search_stays_bounded_does_not_retilt_and_times_out(self):
+        h,driver=self.make();started=h.time;wheels=len(h.drive.commands);seen=[]
+        for _ in range(100):
+            h.echo(None,dt=.02);seen.append(h.controller.qr_preparation.target)
+            if h.controller.snapshot()['state']=='ERROR':break
+        self.assertIn(155.,seen);self.assertIn(175.,seen)
+        self.assertLessEqual(h.time-started,1.53)
+        self.assertIn('QR_VIEW_NOT_FOUND',h.controller.snapshot()['error'])
+        self.assertEqual(driver.angles['elbow'],70.)
+        self.assertTrue(all(c[0]=='stop' for c in h.drive.commands[wheels:]))
+
+    def test_mid_scan_success_and_stop_prevent_further_search(self):
+        for cancel in (False,True):
+            h,driver=self.make()
+            for _ in range(50):
+                h.echo(None,dt=.02)
+                if h.controller.snapshot()['state']=='QR_SCAN_MOVING':break
+            self.assertEqual(h.controller.snapshot()['state'],'QR_SCAN_MOVING')
+            if cancel:
+                h.controller.cancel('WEB_STOP');before=list(driver.writes)
+                for _ in range(100):h.echo(None,dt=.02)
+                self.assertEqual(driver.writes,before)
+            else:
+                h.qr['sequence_selection']={'start_position':'LEFT-B'};h.controller.step()
+                self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
+                self.assertEqual(h.controller.qr_preparation.state,'INTERRUPTED')
+
+    def test_rescan_rejects_inflight_results_from_the_previous_view(self):
+        now=[1.];runtime=MissionRuntime(MissionConfig(layout_frames=1),clock=lambda:now[0])
+        runtime.data.update(state='DIRECTION_CONFIRMED',first_direction='LEFT')
+        runtime.request_side_qr('LEFT',1.);now[0]=2.
+        class Reader:
+            def detect(self,frame):
+                runtime.request_side_qr('LEFT',now[0])
+                return [dict(text='PICK',label='PICK',center_normalized=[.8,.5]),dict(text='PLACE',label='PLACE',center_normalized=[.2,.5])]
+        self.assertIsNone(runtime.process_frame(None,2.,1,Reader()))
+        self.assertIsNone(runtime.snapshot()['sequence_selection'])
+
+
+if __name__=='__main__':unittest.main()
