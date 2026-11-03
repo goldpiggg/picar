@@ -133,6 +133,7 @@ sudo python3 Server/WebServer.py
 | `arm_start_delay_seconds` | 1.0 | 바퀴 잠금 후 BASE 회전 전 대기, 임시값 |
 | `qr_prepare_left_base_deg` | 180.0 | LEFT QR 후 BASE 절대 목표각(중앙 90°에서 왼쪽 90°) |
 | `qr_prepare_right_base_deg` | 0.0 | RIGHT QR 후 BASE 절대 목표각(중앙 90°에서 오른쪽 90°) |
+| `side_single_code` | true | 회전이 끝난 뒤에는 PICK·PLACE 중 한 코드만 화면 한쪽(가운데에서 15% 이상)에 읽혀도 시퀀스 선택. false면 항상 두 코드 필요 |
 | `qr_prepare_elbow_offset_deg` | -20.0 | QR 볼 때 팔꿈치를 초기 자세에서 움직일 각도. 음수면 내림(웹 hand down 방향), 0이면 BASE만 회전 |
 | `side_qr_settle_seconds` | 0.3 | BASE 회전 완료 뒤 이 시간 이후 프레임부터 자리 판별 |
 | `layout_frames` | 1 | 같은 자리 판별이 연속 몇 프레임 나와야 시퀀스를 선택할지 |

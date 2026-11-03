@@ -200,6 +200,16 @@ class ControllerTransferTests(unittest.TestCase):
             if h.controller.snapshot()['state'] == 'COMPLETE': break
         self.assertEqual(h.controller.snapshot()['arm']['completed_transfers'], 2)
 
+    def test_finished_turn_tells_the_qr_worker(self):
+        h, driver, requests = self.turn()
+        settled = []
+        h.controller.settle_side_qr = settled.append
+        for _ in range(300):
+            h.time += .05; h.controller.step()
+            if h.controller.snapshot()['state'] == 'SIDE_QR_WAIT': break
+        self.assertEqual(h.controller.snapshot()['state'], 'SIDE_QR_WAIT')
+        self.assertEqual(len(settled), 1)
+
     def test_disabled_transfer_finishes_the_turn_before_showing_the_sequence(self):
         h, driver, requests = self.turn(arm_enabled=False)
         h.qr = dict(state='DIRECTION_CONFIRMED', first_direction='LEFT',

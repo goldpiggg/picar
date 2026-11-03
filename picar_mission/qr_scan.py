@@ -138,6 +138,8 @@ class QRReader:
         self.detector = cv2.QRCodeDetector()
         if not hasattr(self.detector, 'detectAndDecodeMulti'):
             raise RuntimeError('OpenCV lacks detectAndDecodeMulti; OpenCV 4.5+ is required.')
+        # OpenCV 4.8+ only; reads bent codes the classic detector misses.
+        self.aruco = cv2.QRCodeDetectorAruco() if hasattr(cv2, 'QRCodeDetectorAruco') else None
 
     def detect(self, frame):
         # Multi detection is mandatory: a single-code fallback could conceal
@@ -147,34 +149,56 @@ class QRReader:
             return []
         return self._results(frame, texts, points)
 
-    def detect_side(self, frame):
+    def detect_side(self, frame, one_is_enough=False):
         """PICK and PLACE seen from the side, small and tilted in the frame.
 
         At 640x480 the plain multi decoder misses codes under about 90 px; a
         2x upscale recovers them, and decoding each half alone recovers a
         pair the multi decoder splits. The fallbacks only run while a code is
-        still missing, so a clear view costs the same as detect().
+        still missing, so a clear view costs the same as detect(). After the
+        turn one code clearly off center decides (one_is_enough), so the
+        search stops there instead of hunting for a code it cannot read.
         """
+        done = self._decided if one_is_enough else self._pair
         found = self.detect(frame)
-        if self._pair(found):
+        if done(found):
             return found
         cv2 = self.cv2
-        big = cv2.resize(frame, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-        ok, texts, points, _ = self.detector.detectAndDecodeMulti(big)
-        if ok and points is not None:
-            found = self._merge(found, self._results(big, texts, points, scale=2))
-            if self._pair(found):
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+        big = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        mid = cv2.resize(gray, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
+        sharp = cv2.addWeighted(mid, 1.8, cv2.GaussianBlur(mid, (0, 0), 2), -.8, 0)
+        # Cheapest first; each try only adds codes still missing. A curled
+        # sheet bends its code, and which try reads it varies frame to frame.
+        tries = [('halves', gray, 1), ('multi', big, 2), ('halves', sharp, 1.5), ('halves', big, 2)]
+        if self.aruco is not None:
+            tries.insert(0, ('aruco', gray, 1))
+        for kind, image, scale in tries:
+            if kind == 'halves':
+                width = image.shape[1]
+                for x0, x1 in ((0, width*6//10), (width*4//10, width)):
+                    text, corners, _ = self.detector.detectAndDecode(image[:, x0:x1])
+                    if text and corners is not None:
+                        found = self._merge(found, self._results(image, [text], corners.reshape(1, 4, 2),
+                                                                 scale=scale, x_offset=x0))
+            else:
+                detector = self.aruco if kind == 'aruco' else self.detector
+                ok, texts, points, _ = detector.detectAndDecodeMulti(image)
+                if ok and points is not None:
+                    found = self._merge(found, self._results(image, texts, points, scale=scale))
+            if done(found):
                 return found
-        width = big.shape[1]
-        for x0, x1 in ((0, width*6//10), (width*4//10, width)):
-            text, corners, _ = self.detector.detectAndDecode(big[:, x0:x1])
-            if text and corners is not None:
-                found = self._merge(found, self._results(big, [text], corners.reshape(1, 4, 2), scale=2, x_offset=x0))
         return found
 
     @staticmethod
     def _pair(found):
         return {'PICK', 'PLACE'} <= {item['label'] for item in found}
+
+    @classmethod
+    def _decided(cls, found):
+        from .sequence_selection import SINGLE_CODE_MARGIN
+        return cls._pair(found) or any(item['label'] in ('PICK', 'PLACE') and
+            abs(item['center_normalized'][0]-.5) >= SINGLE_CODE_MARGIN for item in found)
 
     @staticmethod
     def _merge(found, more):

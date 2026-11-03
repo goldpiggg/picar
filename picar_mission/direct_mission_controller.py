@@ -23,11 +23,13 @@ REFERENCE_VOLTS = 7.     # Must match Server/Move.py REFERENCE_VOLTS.
 class DirectMissionController(MissionController):
     def __init__(self, *args, read_heading=None, read_battery=None, qr_preparation=None,
                  arm_reset=None, on_reset_complete=None, request_side_qr=None,
-                 transfer_blocked_reason=None, **kwargs):
+                 transfer_blocked_reason=None, settle_side_qr=None, **kwargs):
         kwargs['_precision'] = False
         super().__init__(*args, **kwargs)
         # Why arm_sequence is None, e.g. untaught positions; shown on selection.
         self.transfer_blocked_reason = transfer_blocked_reason
+        # Tells the QR worker the turn has finished (one code may then do).
+        self.settle_side_qr = settle_side_qr
         self.read_heading = read_heading
         self.read_battery = read_battery
         self.qr_preparation = qr_preparation
@@ -147,6 +149,8 @@ class DirectMissionController(MissionController):
                 self.data.update(arm_motion_enabled=False,automatic_motion_enabled=False,
                                  qr_view_ready=True,pending_stages=['pick_place_qr','arm_transfer'])
                 self._state('QR_VIEW_READY' if self.request_side_qr is None else 'SIDE_QR_WAIT',now)
+                if self.request_side_qr is not None and self.settle_side_qr is not None:
+                    self.settle_side_qr(now)
         elif self.data['state']=='SIDE_QR_WAIT':
             position = self._side_selection()
             if position is not None:

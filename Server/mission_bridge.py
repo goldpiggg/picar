@@ -134,6 +134,7 @@ def _make_controller():
         _ultrasound.read_sample,runtime.snapshot,qr_preparation=preparation,arm_sequence=transfer,
         transfer_blocked_reason=blocked,
         arm_reset=reset,on_reset_complete=runtime.begin_start_scan,request_side_qr=runtime.request_side_qr,
+        settle_side_qr=runtime.side_view_settled,
         read_heading=None if gyro is None else gyro.read_sample,
         read_battery=_read_battery_volts)
 

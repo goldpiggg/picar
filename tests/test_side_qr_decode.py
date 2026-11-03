@@ -60,6 +60,57 @@ class SmallCodeTests(unittest.TestCase):
         self.assertEqual(calls, [])  # No upscaled retry for a clear view.
 
 
+@unittest.skipIf(cv2 is None, 'OpenCV is not installed')
+class CrumpledSheetTests(unittest.TestCase):
+    def test_robot_frame_with_a_curled_place_sheet_still_selects_after_the_turn(self):
+        # A real camera frame: PICK screen-left, PLACE on a curled sheet that
+        # OpenCV 4.6 cannot decode at all.
+        from picar_mission.qr_scan import QRReader
+        frame = cv2.imread(str(FIXTURES/'side_crumpled.png'))
+        found = QRReader(cv2).detect_side(frame, one_is_enough=True)
+        # 4.6 reads only PICK; 4.8+ may stop at PLACE from its Aruco decoder.
+        self.assertTrue({d['label'] for d in found} & {'PICK', 'PLACE'})
+        self.assertEqual(classify_side_start(found, 'LEFT', settled=True), 'LEFT-B')
+        self.assertEqual(classify_side_start(found, 'RIGHT', settled=True), 'RIGHT-A')
+
+
+class SingleCodeTests(unittest.TestCase):
+    def code(self, label, x):
+        return [dict(text=label, label=label, center_normalized=[x, .5])]
+
+    def test_one_code_decides_only_after_the_turn_and_off_center(self):
+        for codes, left in [(self.code('PICK', .3), 'LEFT-B'), (self.code('PICK', .7), 'LEFT-A'),
+                            (self.code('PLACE', .7), 'LEFT-B'), (self.code('PLACE', .3), 'LEFT-A')]:
+            with self.subTest(codes=codes):
+                self.assertIsNone(classify_side_start(codes, 'LEFT'))
+                self.assertEqual(classify_side_start(codes, 'LEFT', settled=True), left)
+        self.assertIsNone(classify_side_start(self.code('PICK', .42), 'LEFT', settled=True))
+
+    def runtime(self, **cfg):
+        now = [1.]
+        runtime = MissionRuntime(MissionConfig(layout_frames=1, **cfg), clock=lambda: now[0])
+        runtime.data.update(state='DIRECTION_CONFIRMED', first_direction='LEFT')
+        runtime.request_side_qr('LEFT', now[0])
+        return runtime, now
+
+    def test_runtime_waits_for_the_turn_and_its_settle_time(self):
+        runtime, now = self.runtime()
+        reader = SimpleNamespace(detect=lambda frame: frame, detect_side=lambda frame, **_: frame)
+        now[0] = 1.5
+        self.assertIsNone(runtime.process_frame(self.code('PICK', .3), now[0], 1, reader))  # Still turning.
+        self.assertTrue(runtime.side_view_settled(now[0]))
+        self.assertIsNone(runtime.process_frame(self.code('PICK', .3), now[0]+.1, 2, reader))  # Before settle.
+        now[0] = 2.
+        self.assertEqual(runtime.process_frame(self.code('PICK', .3), now[0], 3, reader), 'LEFT-B')
+
+    def test_single_code_can_be_turned_off(self):
+        runtime, now = self.runtime(side_single_code=False)
+        self.assertFalse(runtime.side_view_settled(now[0]))
+        now[0] = 3.
+        reader = SimpleNamespace(detect=lambda frame: frame, detect_side=lambda frame, **_: frame)
+        self.assertIsNone(runtime.process_frame(self.code('PICK', .3), now[0], 1, reader))
+
+
 class SlowDecodeTests(unittest.TestCase):
     def runtime(self):
         now = [1.]
@@ -71,7 +122,7 @@ class SlowDecodeTests(unittest.TestCase):
         runtime, now = self.runtime()
         runtime.request_side_qr('LEFT', now[0])
         captured = now[0]+.4
-        def slow(frame):
+        def slow(frame, **_):
             now[0] = captured+3.  # Twice max_frame_age_seconds on a slow Pi.
             return [dict(text='PICK', label='PICK', center_normalized=[.3, .5]),
                     dict(text='PLACE', label='PLACE', center_normalized=[.7, .5])]

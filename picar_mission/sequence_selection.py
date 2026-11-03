@@ -19,11 +19,19 @@ def sequence_for(start_position):
             (other+'-'+diagonal,'PICK'), (side+'-'+diagonal,'PLACE'))])
 
 
-def classify_side_start(detections, direction, min_gap=.05):
+# A lone code must sit at least this far from the image center to count.
+SINGLE_CODE_MARGIN = .15
+
+
+def classify_side_start(detections, direction, min_gap=.05, settled=False):
     """Compare the two QR centers after turning toward a single side.
 
     Confirmed camera view: RIGHT's A is screen-left, LEFT's A screen-right.
-    Image halves and vertical coordinates do not identify physical sides.
+    While the arm turns, image halves and vertical coordinates do not
+    identify physical sides, so both codes are required. Once the turn has
+    finished (`settled`), the two spots straddle the image center, and one
+    code clearly on one side is enough: a crumpled sheet often hides the
+    other one from the decoder.
     """
     if direction not in ('LEFT', 'RIGHT'):
         return None
@@ -41,9 +49,17 @@ def classify_side_start(detections, direction, min_gap=.05):
         if type(x) not in (int, float) or not math.isfinite(x) or not 0 <= x <= 1:
             return None
         codes[label] = x
-    if set(codes) != {'PICK', 'PLACE'} or abs(codes['PICK']-codes['PLACE']) < min_gap:
+    if set(codes) == {'PICK', 'PLACE'}:
+        if abs(codes['PICK']-codes['PLACE']) < min_gap:
+            return None
+        pick_right = codes['PICK'] > codes['PLACE']
+    elif settled and len(codes) == 1:
+        (label, x), = codes.items()
+        if abs(x-.5) < SINGLE_CODE_MARGIN:
+            return None
+        pick_right = (x > .5) == (label == 'PICK')
+    else:
         return None
-    pick_right = codes['PICK'] > codes['PLACE']
     row = 'A' if pick_right == (direction == 'LEFT') else 'B'
     return direction+'-'+row
 
@@ -58,10 +74,10 @@ class SideQrGate:
     last_seen: float = None
     confirmed: str = None
 
-    def update(self, detections, direction, now):
+    def update(self, detections, direction, now, settled=False):
         if self.confirmed is not None:
             return self.confirmed
-        start = classify_side_start(detections, direction, self.min_gap)
+        start = classify_side_start(detections, direction, self.min_gap, settled)
         gap = self.last_seen is not None and now-self.last_seen > self.max_gap_seconds
         if start is None or start != self.candidate or gap:
             self.candidate, self.count = start, int(start is not None)

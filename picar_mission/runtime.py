@@ -25,6 +25,8 @@ class MissionRuntime:
         self.last_sequence = -1
         self.scan_epoch = 0
         self.scan_after = float('-inf')
+        # Frames captured from here on see the finished turn (side_view_settled).
+        self.side_settled_after = float('inf')
         self.data = {
             'state': 'WAIT_QR' if self.config.qr_enabled else 'DISABLED',
             'first_direction': None,
@@ -117,9 +119,19 @@ class MissionRuntime:
             self.scan_epoch += 1
             self.scan_after = max(self.clock(), not_before)+self.config.side_qr_settle_seconds
             self.side_gate = SideQrGate(self.config.layout_frames, self.config.layout_min_gap, self.config.max_gap_seconds)
+            self.side_settled_after = float('inf')
             self.data.update(state='WAIT_SIDE_QR', side_direction=direction,
                 side_candidate=None, side_frames=0, sequence_selection=None, detections=[])
             self._discard_frames()
+            return True
+
+    def side_view_settled(self, now):
+        """The arm finished turning: from frames taken after the settle time on,
+        one PICK or PLACE code clearly on one side is enough."""
+        with self.lock:
+            if self.data['state'] != 'WAIT_SIDE_QR' or not self.config.side_single_code:
+                return False
+            self.side_settled_after = max(self.clock(), now)+self.config.side_qr_settle_seconds
             return True
 
     def _stale(self, captured_at, decoded=False):
@@ -148,9 +160,10 @@ class MissionRuntime:
             if self._stale(captured_at):
                 return None
             epoch, state = self.scan_epoch, self.data['state']
+            settled = captured_at >= self.side_settled_after
         side = state == 'WAIT_SIDE_QR' and hasattr(reader, 'detect_side')
         began = time.monotonic()
-        detections = reader.detect_side(frame) if side else reader.detect(frame)
+        detections = reader.detect_side(frame, one_is_enough=settled) if side else reader.detect(frame)
         decode_ms = round(1000*(time.monotonic()-began))
         direction = layout = start = None
         with self.lock:
@@ -172,7 +185,8 @@ class MissionRuntime:
                 if layout:
                     self.data.update(state='LAYOUT_CONFIRMED', layout=layout)
             else:
-                start = self.side_gate.update(detections, self.data['side_direction'], captured_at)
+                start = self.side_gate.update(detections, self.data['side_direction'], captured_at,
+                                              settled=captured_at >= self.side_settled_after)
                 self.data.update(side_candidate=self.side_gate.candidate, side_frames=self.side_gate.count)
                 if start:
                     self.data.update(state='SEQUENCE_IDENTIFIED', sequence_selection=sequence_for(start))

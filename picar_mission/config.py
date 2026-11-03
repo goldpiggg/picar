@@ -45,6 +45,9 @@ class MissionConfig:
     # is then (the reset pose). Negative lowers it, like the web "hand down".
     qr_prepare_elbow_offset_deg: float = -20.0
     side_qr_settle_seconds: float = 0.3
+    # After the turn, decide from one PICK or PLACE code alone when the other
+    # cannot be decoded. Off: both codes are always required.
+    side_single_code: bool = True
     # Box layout from PICK/PLACE codes, read after the stop and before the arm.
     layout_frames: int = 3
     layout_min_gap: float = 0.05
@@ -134,6 +137,8 @@ def load_config(path=None):
             raise ValueError(name+' must be within 0~189 degrees')
     if abs(number('qr_prepare_elbow_offset_deg')) > 90:
         raise ValueError('Require |qr_prepare_elbow_offset_deg| <= 90')
+    if type(cfg.side_single_code) is not bool:
+        raise ValueError('side_single_code must be boolean')
     if number('side_qr_settle_seconds') < 0:
         raise ValueError('side_qr_settle_seconds must be nonnegative')
     if abs(number('direct_steer_preload_deg')) > 30:
