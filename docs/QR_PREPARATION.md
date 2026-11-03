@@ -1,19 +1,29 @@
-# 정지 후 PICK·PLACE QR을 보기 위한 준비
+# 새 미션 초기화와 PICK·PLACE 시퀀스 선택
 
-현재 웹 미션은 다음 순서까지만 실행합니다.
+현재 웹 미션은 다음 순서를 실행합니다. 선택 결과만 표시하며 실제 운반은 대기합니다.
 
 ```text
-LEFT/RIGHT QR → 직진·펄스 접근 → 30±1cm 정지·바퀴 잠금
-             → ARM_WAIT(기본 1초) → QR_TURNING(BASE만 회전)
-             → QR_VIEW_READY(그 자세로 대기)
+새 미션 버튼 → ARM_RESET(팔 초기 자세) → LEFT/RIGHT QR
+            → 직진·펄스 접근 → 30±1cm 정지·바퀴 잠금
+            → ARM_WAIT(기본 1초) → QR_TURNING(BASE만 회전)
+            → SIDE_QR_WAIT(PICK·PLACE 확인) → SEQUENCE_READY(선택 표시·대기)
 ```
 
-중앙 BASE 90°를 기준으로 LEFT는 180°, RIGHT는 0°입니다(제조사 웹 화면의 Left 버튼처럼 각도가 커지면 왼쪽). 좌우 각각 90°를 돌아보는 목표각이며, 시작 시 현재 명령각에서 그 절대각까지 부드럽게 이동합니다. 어깨·팔꿈치·집게는 움직이지 않습니다. 회전 속도는 `arm_jog_speed`와 기존 프로필의 `carry_speed_deg_per_second` 중 느린 값을 사용합니다. 기존 속도 슬라이더의 배율은 회전 시작 시 적용하고, 이미 시작한 회전을 중간에 가속하지는 않습니다.
+새 미션은 팔의 회전·어깨·팔꿈치·집게를 서버 시작 자세(`ServoCtrl.initPos`, 기본 모두 90°)로 부드럽게 돌립니다. 도착 전 프레임은 출발 QR로 확정하지 않습니다. 초기화 중 전체 중지를 누르면 현재 자세를 유지하고 수동 모드로 전환합니다.
 
-`mission_config.json`에서 필요한 경우 `qr_prepare_left_base_deg`, `qr_prepare_right_base_deg`를 조정할 수 있습니다. 키를 추가하지 않은 기존 설정 파일에도 기본 LEFT 180°·RIGHT 0°가 적용됩니다. `arm_poses.json`의 BASE 허용 범위도 검사하므로 목표가 범위를 벗어나면 서보 명령 없이 정지·오류 처리합니다. 사이트에는 각도 조절·저장 항목을 추가하지 않았습니다.
+정지 후 중앙 BASE 90° 기준 **LEFT는 180°, RIGHT는 0°**로 돌아봅니다. 실물에서 RIGHT QR 후 왼쪽으로 돌던 기존 기본값을 반대로 바로잡았습니다. 이때 어깨·팔꿈치·집게는 유지합니다. 회전 속도는 기존 속도 설정·슬라이더를 적용하고 진행 중인 이동을 중간에 가속하지 않습니다. `qr_prepare_left_base_deg`·`qr_prepare_right_base_deg` 설정으로 목표각을 바꿀 수 있으며 관절 범위를 검사합니다. 사이트에 별도 회전각 저장 항목은 추가하지 않았습니다.
 
-이 준비 동작은 `arm_enabled`·`calibration_confirmed`와 별개입니다. 두 설정을 켜둔 기존 파일에서도 자동 운반으로 넘어가지 않습니다. 현재 범위에서는 PICK/PLACE QR 판별 요청도 시작하지 않으며, 배치가 이미 감지됐더라도 집기·놓기 시퀀스를 실행하지 않습니다. 다음 단계는 별도 연결할 예정입니다. 기존 운반 계획 생성과 수동 리허설 코드는 남겨두었습니다.
+카메라에서 **RIGHT를 볼 때 화면 왼쪽이 A, LEFT를 볼 때 화면 오른쪽이 A**입니다. A는 모니터·출발 QR 쪽, B는 출발선 쪽이라는 물리 기준을 유지합니다. 같은 쪽의 PICK과 PLACE QR을 동시에 읽고 두 중심의 좌우 순서를 비교합니다. 같은 결과가 `layout_frames`(기본 3) 프레임 연속 나와야 선택합니다. 한 코드만 보이거나 중복 코드·너무 가까운 중심·오래된 프레임이면 확정하지 않고 기다립니다. 회전 완료 후 `side_qr_settle_seconds`(기본 0.3초) 이전 프레임과 진행 중이던 이전 QR 판독도 버립니다.
 
-정지 시 초음파 거리값을 고정하고 이후 거리·조향·전진·후진을 사용하지 않습니다. 전체 동작 중지나 오류가 발생하면 BASE 보간을 중단하고 현재 자세를 유지합니다. 준비 완료는 전체 미션 성공과 구분하며, 새 미션은 기존 시작 버튼으로 명시적으로 시작합니다. 기존 `arm_poses.json`, `arm_positions.json`, `mission_config.json`은 이 변경으로 다시 저장하지 않습니다.
+| 선택 | 순서 |
+|---|---|
+| 1 · LEFT-A | LEFT-A PICK → RIGHT-A PLACE → RIGHT-B PICK → LEFT-B PLACE |
+| 2 · LEFT-B | LEFT-B PICK → RIGHT-B PLACE → RIGHT-A PICK → LEFT-A PLACE |
+| 3 · RIGHT-A | RIGHT-A PICK → LEFT-A PLACE → LEFT-B PICK → RIGHT-B PLACE |
+| 4 · RIGHT-B | RIGHT-B PICK → LEFT-B PLACE → LEFT-A PICK → RIGHT-A PLACE |
+
+이 기능은 `arm_enabled`·`calibration_confirmed`와 별개이며 두 값을 켜도 자동 운반으로 넘어가지 않습니다. 선택 결과는 다음 새 미션까지 유지하며, 새 미션을 시작하면 QR·선택·시간을 함께 지웁니다. 연결이 끊기면 화면은 기존 선택을 현재 결과로 표시하지 않습니다.
+
+정지 시 초음파 거리값을 고정하고 이후 조향·전진·후진을 잠급니다. 전체 중지는 주행·QR·팔 이동 작업을 종료하고 `/poses`에서 즉시 수동 조작을 허용합니다. 새 미션 버튼은 수동 작업을 먼저 종료한 뒤 초기 자세 복원을 시작합니다. 기존 자세 이름을 가진 `arm_poses.json`도 관절 범위·속도만 읽어 수동 조절·자리 저장에 사용할 수 있으며 원본 파일을 새 형식으로 덮어쓰지 않습니다. `arm_positions.json`·설정 파일도 자동으로 다시 저장하지 않습니다.
 
 제조사 서버 시작 시의 서보 초기화는 그대로입니다. 테스트는 가상 드라이버로 수행했으며 실제 로봇에서 90° 회전하는 경로와 카메라 시야는 현장에서 확인해야 합니다.

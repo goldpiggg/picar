@@ -61,11 +61,11 @@ class JointControlTests(unittest.TestCase):
         self.assertIn(('motor_stop',),self.calls)
         self.assertFalse(any(c[0] in ('servo','drive','steer') for c in self.calls))
         self.assertEqual(self.bridge.status()['state'],'ARM_TEACHING')
-        self.assertFalse(self.bridge.status()['dashboard']['can_start'])
+        self.assertFalse(self.bridge.status()['dashboard']['can_start'])  # No live camera yet.
         self.assertFalse(self.bridge.status()['automatic_motion_enabled'])
         self.assertTrue(self.bridge.automatic_enabled())  # Existing car controls stay reserved.
         self.assertFalse(self.bridge.allow_command('forward'))
-        with self.assertRaisesRegex(ValueError,'팔 수동 조절'): self.bridge.start_mission()
+        with self.assertRaisesRegex(ValueError,'카메라'): self.bridge.start_mission()
         self.assertIs(self.bridge.config,self.original_config)
         self.assertFalse(self.store.path.exists())
 
@@ -92,9 +92,9 @@ class JointControlTests(unittest.TestCase):
         self.calls.clear()
         for joint,angle in [('steering',90),('base',True),('base',float('nan')),('base',float('inf')),('base',190),('elbow',-1)]:
             with self.subTest(joint=joint,angle=angle), self.assertRaises(ValueError): self.joint(joint,angle)
-        profile = self.bridge.load_profile()
+        profile = self.bridge.load_motion_profile()
         profile.limits = {**profile.limits,'base':[80,100]}
-        with patch.object(self.bridge,'load_profile',return_value=profile):
+        with patch.object(self.bridge,'load_motion_profile',return_value=profile):
             with self.assertRaises(ValueError): self.joint('base',101)
         self.assertEqual(self.bridge._control_revision,revision)
         self.assertEqual(self.calls,[])

@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
 from picar_mission.battery_alarm import BatteryAlarm
 from picar_mission.battery_routes import register_battery_routes
+from picar_mission.sequence_selection import sequence_for
 app = Flask(__name__)
 
 
@@ -62,24 +63,27 @@ def status():
         state = mode
         direction, distance, transfers = None,80.,0
         if started is not None:
-            if age < 2: state = 'WAIT_QR'
-            elif age < 8:
-                state, direction, distance = 'DRIVING','LEFT',max(31.,80.-(age-2)*8.2)
-            elif age < 10: state,direction,distance = 'PULSE_SETTLE','LEFT',30.3
-            elif age < 14: state,direction,distance = 'ARM_TRANSFER','LEFT',30.3
-            elif age < 18: state,direction,distance,transfers = 'ARM_TRANSFER','LEFT',30.3,1
-            else: state,direction,distance,transfers = 'COMPLETE','LEFT',30.3,2
+            if age < 2: state = 'ARM_RESET'
+            elif age < 4: state = 'WAIT_QR'
+            elif age < 10:
+                state, direction, distance = 'DRIVING','LEFT',max(31.,80.-(age-4)*8.2)
+            elif age < 12: state,direction,distance = 'PULSE_SETTLE','LEFT',30.3
+            elif age < 16: state,direction,distance = 'QR_TURNING','LEFT',30.3
+            elif age < 18: state,direction,distance = 'SIDE_QR_WAIT','LEFT',30.3
+            else: state,direction,distance = 'SEQUENCE_READY','LEFT',30.3
         if mode=='CANCELLED': state = mode
-        finished = state in ('COMPLETE','CANCELLED')
-        if state=='COMPLETE': age = 18.
+        finished = state in ('SEQUENCE_READY','CANCELLED')
+        if state=='SEQUENCE_READY': age = 18.
         return dict(state=state,first_direction=direction,error=None,
-            target_stop_latched=started is not None and age>=10,
+            target_stop_latched=started is not None and age>=12,
+            sequence_selection=sequence_for('LEFT-A') if state=='SEQUENCE_READY' else None,
+            qr=dict(side_candidate='LEFT-A' if state=='SIDE_QR_WAIT' else None,side_frames=1),
             arm={'completed_transfers':transfers},
             dashboard=dict(state=state,attempt=attempt,started=started is not None,finished=finished,
                 can_start=started is None or finished,elapsed_seconds=age,
-                session_id=SESSION_ID,control_revision=revision,distance_cm=round(distance,1),remaining_cm=0. if age>=10 else round(max(0.,distance-30.),1),
-                target_distance_cm=30.,distance_source='FINAL' if age>=10 else 'LIVE',
-                camera_online=True,arm_enabled=True,arm_calibrated=True,arm_speed=arm_speed_status()))
+                session_id=SESSION_ID,control_revision=revision,distance_cm=round(distance,1),remaining_cm=0. if age>=12 else round(max(0.,distance-30.),1),
+                target_distance_cm=30.,distance_source='FINAL' if age>=12 else 'LIVE',
+                camera_online=True,arm_enabled=False,arm_calibrated=False,arm_mode='sequence_preview',arm_speed=arm_speed_status()))
 
 
 @app.get('/dashboard')

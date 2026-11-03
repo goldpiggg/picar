@@ -9,7 +9,7 @@ from .arm_sequence import LAYOUTS
 from .qr_scan import emit
 
 
-TERMINAL = frozenset({'STOPPED_WAIT','QR_VIEW_READY','COMPLETE','ERROR','CANCELLED','DISABLED'})
+TERMINAL = frozenset({'STOPPED_WAIT','QR_VIEW_READY','SEQUENCE_READY','COMPLETE','ERROR','CANCELLED','DISABLED'})
 
 
 class MissionController:

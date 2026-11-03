@@ -10,7 +10,7 @@ from picar_mission.config import MAX_ARM_JOG_SPEED, load_config
 from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
 from picar_mission.arm_sequence import LAYOUTS, MAX_ARM_SPEED, MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_motion_profile, load_profile, pose_targets, save_pose as save_arm_pose
-from picar_mission.qr_prepare import QrPreparation
+from picar_mission.qr_prepare import ArmReset, QrPreparation
 from picar_mission.arm_positions import PositionStore
 from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
 from picar_mission.heading import GyroHeading
@@ -114,8 +114,13 @@ def _make_controller():
     preparation = QrPreparation(ArmAdapter(_servo),profile,
         {'LEFT': config.qr_prepare_left_base_deg, 'RIGHT': config.qr_prepare_right_base_deg},
         speed=lambda:min(arm_jog_speed(),profile.move_speed(True)))
+    initial = getattr(_servo,'initPos',[90.]*8)
+    reset = ArmReset(ArmAdapter(_servo),profile,
+        {joint:float(initial[channel]) for joint,channel in ArmAdapter.channels.items()},
+        speed=lambda:min(arm_jog_speed(),profile.move_speed(True)))
     return DirectMissionController(config,DriveAdapter(_move,_servo),
         _ultrasound.read_sample,runtime.snapshot,qr_preparation=preparation,
+        arm_reset=reset,on_reset_complete=runtime.begin_start_scan,request_side_qr=runtime.request_side_qr,
         read_heading=None if gyro is None else gyro.read_sample,
         read_battery=_read_battery_volts)
 
@@ -229,6 +234,8 @@ def configure(move, steering, ultrasound):
         elif not config.web_start_required and config.auto_approach_enabled:
             _mission_started = True
             _mission_started_at = time.monotonic()
+            runtime.wait_for_arm_reset()
+            runtime.start()
             controller.start()
 
 
@@ -238,7 +245,7 @@ def start_mission(expected_revision=None):
     The lifecycle lock makes concurrent starts idempotent and serializes stop
     against replacement. Retire every old worker before clearing its QR latch.
     """
-    global controller, runtime, _cancelled, _mission_started, _mission_started_at, _attempt, _control_revision
+    global controller, runtime, _cancelled, _mission_started, _mission_started_at, _attempt, _control_revision, _position_teaching
     with _lock:
         if expected_revision is not None and expected_revision != _control_revision:
             raise ValueError('제어 상태가 바뀌었습니다. 현재 상태를 확인하고 다시 시작하세요')
@@ -246,9 +253,7 @@ def start_mission(expected_revision=None):
             raise ValueError('서버가 아직 준비되지 않았습니다')
         if not config.auto_approach_enabled:
             raise ValueError('수동 모드입니다. 자동 미션 설정을 켜고 서버를 재시작하세요')
-        if _position_teaching:
-            raise ValueError('팔 수동 조절을 종료한 뒤 미션을 시작하세요')
-        if _mission_started and controller.snapshot()['state'] not in TERMINAL:
+        if _mission_started and not _position_teaching and controller.snapshot()['state'] not in TERMINAL:
             return status()  # Double click or retry must not start a second run.
         if _camera_seen_at is None or time.monotonic()-_camera_seen_at > config.max_frame_age_seconds:
             raise ValueError('카메라 영상이 연결된 뒤 시작할 수 있습니다')
@@ -259,10 +264,14 @@ def start_mission(expected_revision=None):
         if runtime.worker is not None and runtime.worker.is_alive():
             raise RuntimeError('이전 QR 작업을 중지하지 못했습니다')
         stop_pose_move()
+        if _pose_move is not None and _pose_move['thread'].is_alive():
+            raise RuntimeError('이전 팔 이동을 중지하지 못했습니다')
         runtime = MissionRuntime(config)
+        runtime.wait_for_arm_reset()
         # Keep a stopped controller installed if profile validation fails.
         replacement = _make_controller()
         _cancelled = False
+        _position_teaching = False
         _mission_started = True
         _mission_started_at = time.monotonic()
         _attempt += 1
@@ -313,14 +322,14 @@ def _dashboard_status(result):
             pass
     camera_online = _camera_seen_at is not None and now-_camera_seen_at <= config.max_frame_age_seconds
     return dict(state=state,attempt=_attempt,started=_mission_started,finished=finished,
-        can_start=ready and camera_online and config.auto_approach_enabled and not _position_teaching and (not _mission_started or finished),
+        can_start=ready and camera_online and config.auto_approach_enabled and (not _mission_started or finished or _position_teaching),
         elapsed_seconds=elapsed,distance_cm=distance,distance_age_seconds=age,distance_source=source,
         remaining_cm=0. if result.get('target_stop_latched') else None if distance is None else round(max(0.,distance-config.target_distance_cm),1),
         target_distance_cm=config.target_distance_cm,
         camera_online=camera_online,
         camera_generation=_camera_generation,
         camera_error=_camera_error,
-        arm_mode='qr_prepare_only',
+        arm_mode='sequence_preview',
         arm_enabled=config.arm_enabled,
         control_revision=_control_revision,
         session_id=SESSION_ID,
@@ -402,7 +411,7 @@ def _move_arm_targets(name, targets, profile, speed=None):
 
 
 def _position_store():
-    return PositionStore(ROOT/'arm_positions.json', limits=_load_profile().limits)
+    return PositionStore(ROOT/'arm_positions.json', limits=_load_motion_profile().limits)
 
 
 def position_data():
@@ -411,7 +420,7 @@ def position_data():
             angles=_read_arm_angles(), move=pose_move_status(), preview=False,
             legacy_available=True, control_revision=_control_revision, session_id=SESSION_ID,
             teaching_active=_position_teaching, can_switch_teaching=config.auto_approach_enabled and controller is not None,
-            joint_limits=_load_profile().limits, supports_joint_control=True)
+            joint_limits=_load_motion_profile().limits, supports_joint_control=True)
 
 
 def _require_position_teaching():
@@ -437,7 +446,7 @@ def move_to_position(position, pose, expected_revision=None, session_id=None):
             raise ValueError('제어 상태가 바뀌었습니다. 현재 상태를 확인하고 다시 이동하세요')
         targets = _position_store().targets(position, pose)
         _control_revision += 1
-        return _move_arm_targets(position+' / '+pose, targets, _load_profile())
+        return _move_arm_targets(position+' / '+pose, targets, _load_motion_profile())
 
 
 def stop_position_move():
@@ -500,7 +509,7 @@ def set_joint_angle(joint, angle, expected_revision=None, session_id=None):
     with _lock:
         _require_position_teaching()
         _check_position_revision(expected_revision, session_id)
-        profile = _load_profile()
+        profile = _load_motion_profile()
         if joint not in ('base','shoulder','elbow','gripper'):
             raise ValueError('팔 관절 이름을 확인하세요')
         low, high = profile.limits[joint]
@@ -569,15 +578,25 @@ BUTTON_RELEASE_COMMANDS = frozenset({'DS','TS','LRstop','armstop','HAstop'})
 
 
 def cancel(reason='USER_STOP'):
-    global _cancelled, _control_revision
+    global _cancelled, _control_revision, _position_teaching
     with _lock:
         _cancelled = True
         _control_revision += 1
         stop_pose_move()
         if controller is not None:
             controller.cancel(reason)
+            controller.stop()
+            if controller.worker is not None and controller.worker.is_alive():
+                raise RuntimeError('주행 작업이 아직 멈추지 않았습니다')
+        runtime.stop()
+        if runtime.worker is not None and runtime.worker.is_alive():
+            raise RuntimeError('QR 작업이 아직 멈추지 않았습니다')
         if _servo is not None and getattr(controller,'arm',None) is None:
             ArmAdapter(_servo).hold()
+        if reason=='WEB_STOP' and _servo is not None:
+            if _pose_move is not None and _pose_move['thread'].is_alive():
+                raise RuntimeError('팔 이동이 아직 멈추지 않았습니다')
+            _position_teaching = True
 
 
 def allow_command(command, response=None):

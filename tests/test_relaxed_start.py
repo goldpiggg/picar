@@ -67,7 +67,7 @@ class RelaxedStartTests(unittest.TestCase):
         b=test_approach.OfficialConnectionTests().load_bridge()
         cancelled=[]
         b.controller=SimpleNamespace(snapshot=lambda:dict(state='WAIT_QR'),
-                                     cancel=cancelled.append)
+                                     cancel=cancelled.append,stop=lambda:None,worker=None)
         for command in ['forward','DS','left','TS','armup','armstop']:
             self.assertFalse(b.allow_command(command))
         self.assertFalse(b._cancelled)
@@ -79,7 +79,7 @@ class RelaxedStartTests(unittest.TestCase):
         b=test_approach.OfficialConnectionTests().load_bridge()
         cancelled=[]
         b.controller=SimpleNamespace(snapshot=lambda:dict(state='APPROACH'),
-                                     cancel=cancelled.append)
+                                     cancel=cancelled.append,stop=lambda:None,worker=None)
         b.allow_command('DS')
         self.assertTrue(b._cancelled)
         self.assertEqual(cancelled,['USER_STOP'])
