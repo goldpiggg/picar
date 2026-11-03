@@ -42,6 +42,8 @@ class MissionConfig:
     # A larger BASE angle turns left, like the manufacturer's lookleft button.
     qr_prepare_left_base_deg: float = 165.0
     qr_prepare_right_base_deg: float = 7.0
+    # Applied after the taught A/B average; QR viewing only, not transfer poses.
+    qr_prepare_right_base_offset_deg: float = -10.0
     qr_scan_timeout_seconds: float = 1.5
     # Elbow change while looking at the side QR codes, from wherever the elbow
     # is then (the reset pose). Negative lowers it, like the web "hand down".
@@ -142,6 +144,8 @@ def load_config(path=None):
     for name in ('qr_prepare_left_base_deg', 'qr_prepare_right_base_deg'):
         if not 0 <= number(name) <= 189:
             raise ValueError(name+' must be within 0~189 degrees')
+    if abs(number('qr_prepare_right_base_offset_deg')) > 30:
+        raise ValueError('Require |qr_prepare_right_base_offset_deg| <= 30')
     if abs(number('qr_prepare_elbow_offset_deg')) > 90:
         raise ValueError('Require |qr_prepare_elbow_offset_deg| <= 90')
     if type(cfg.side_single_code) is not bool:

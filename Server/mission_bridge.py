@@ -130,6 +130,8 @@ def _make_controller():
             positions_error = str(exc)
     targets = side_view_targets(positions,profile.limits,
         {'LEFT': config.qr_prepare_left_base_deg, 'RIGHT': config.qr_prepare_right_base_deg})
+    low, high = profile.limits['base']
+    targets['RIGHT'] = max(low,min(high,targets['RIGHT']+config.qr_prepare_right_base_offset_deg))
     preparation = QrPreparation(ArmAdapter(_servo),profile,targets,
         speed=lambda:min(arm_jog_speed(),profile.move_speed(True)),
         elbow_offset=config.qr_prepare_elbow_offset_deg)
