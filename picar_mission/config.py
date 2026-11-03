@@ -4,7 +4,7 @@ import json
 import math
 from pathlib import Path
 
-MAX_ARM_JOG_SPEED = 60  # degrees/second; also caps the dashboard speed scale.
+MAX_ARM_JOG_SPEED = 150  # degrees/second; also caps the dashboard speed scale.
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -76,7 +76,7 @@ class MissionConfig:
     gyro_z_sign: int = 1
     gyro_calibration_seconds: float = 1.5
     # Web ARM/gripper button speed, degrees/second (RPIservo uses whole numbers).
-    arm_jog_speed: int = 20
+    arm_jog_speed: int = 40
 
 
 def load_config(path=None):

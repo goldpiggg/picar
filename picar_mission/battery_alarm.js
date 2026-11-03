@@ -2,7 +2,7 @@
 (() => {
   const root = document.getElementById('battery-alarm');
   if (!root) return;
-  root.innerHTML = `<div class="battery-main"><span class="battery-icon" id="battery-icon" aria-hidden="true">◌</span><div><span class="battery-title" id="battery-title" role="status" aria-live="polite">전압 확인 중</span><span class="battery-voltage" id="battery-voltage">— V</span><p class="battery-detail" id="battery-detail">전압이 낮을 때만 경고음이 울립니다.</p></div></div><div class="battery-controls"><label class="battery-preview-field" id="battery-preview-field" hidden><span class="battery-preview-label">미리보기 가상 전압</span><select class="battery-preview-select" id="battery-preview-voltage" aria-label="미리보기 가상 전압"><option value="7.4">정상 · 7.4 V</option><option value="5.8">부족 · 5.8 V</option></select></label><button class="battery-toggle" id="battery-toggle" type="button" disabled>경고음 확인 중</button></div>`;
+  root.innerHTML = `<div class="battery-main"><span class="battery-icon" id="battery-icon" aria-hidden="true">◌</span><div><span class="battery-title" id="battery-title" role="status" aria-live="polite">전압 확인 중</span><span class="battery-percent" id="battery-percent">—%</span><span class="battery-voltage" id="battery-voltage">— V</span><p class="battery-detail" id="battery-detail">전압이 낮을 때만 경고음이 울립니다.</p></div></div><div class="battery-controls"><label class="battery-preview-field" id="battery-preview-field" hidden><span class="battery-preview-label">미리보기 가상 전압</span><select class="battery-preview-select" id="battery-preview-voltage" aria-label="미리보기 가상 전압"><option value="7.4">정상 · 7.4 V</option><option value="5.8">부족 · 5.8 V</option></select></label><button class="battery-toggle" id="battery-toggle" type="button" disabled>경고음 확인 중</button></div>`;
   const byId = id => document.getElementById(id);
   const feedback = document.createElement('p');
   feedback.className = 'battery-feedback'; feedback.setAttribute('role','status');
@@ -36,6 +36,7 @@
     root.classList.remove('offline');
     setText('battery-icon',muted?'🔇':alerting?'🔊':'🔈');
     setText('battery-voltage',known?`${data.voltage_volts.toFixed(2)} V`:'— V');
+    setText('battery-percent',known&&typeof data.battery_percent==='number'?`${data.battery_percent}%`:'—%');
     setText('battery-title',muted?(warning?'전압 낮음 · 경고음 음소거':'경고음 음소거'):data.sounding?'전압 경고음 울리는 중':warning?'전압 부족 · 경고음 켜짐':known?'전압 정상 · 경고음 대기':'전압 측정 대기');
     setText('battery-detail',data.settings_error?'경고음 저장 설정을 확인해주세요.':muted?`다시 켤 때까지 묵음 유지 · 전압 경고 기준 ${data.threshold_volts} V 미만`:`${data.threshold_volts} V 미만일 때만 경고음이 울립니다. 켜기로 시험 소리를 내지 않습니다.`);
     setText('battery-toggle',busy?'처리 중…':muted?'경고음 켜기':warning?'무시하기':'경고음 끄기');
@@ -53,6 +54,7 @@
         root.classList.remove('alarming');
         setText('battery-title','전압·경고음 상태 확인 필요');
         setText('battery-voltage','— V');
+        setText('battery-percent','—%');
         byId('battery-toggle').disabled = true;
       }
     }

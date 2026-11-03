@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
+import sample_poses  # noqa: F401  (sample arm_poses.json for every test)
 from picar_mission.config import MissionConfig
 from picar_mission.distance import DistanceFilter, DistanceReading, SensorFault
 from picar_mission.approach import Approach

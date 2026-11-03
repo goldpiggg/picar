@@ -16,6 +16,8 @@ POSES = ('approach', 'pick', 'place')
 COMMON = ('gripper_open', 'gripper_closed', 'center_clear', 'center_carry')
 JOINTS = ('base', 'shoulder', 'elbow', 'gripper')
 _lock = RLock()
+# The robot's taught positions. Tests point this at a temporary folder.
+POSITIONS_FILE = Path(__file__).resolve().parent.parent/'arm_positions.json'
 
 
 def empty_profile():

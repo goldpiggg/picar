@@ -33,6 +33,13 @@ class BatteryAlarmTests(unittest.TestCase):
                 self.assertEqual(self.calls,[])
                 self.assertFalse(self.alarm.snapshot()['sounding'])
 
+    def test_battery_percent_scales_from_threshold_to_full_and_clamps(self):
+        self.assertIsNone(self.alarm.snapshot()['battery_percent'])
+        for volts,percent in [(8.4,100),(7.35,50),(6.3,0),(5.8,0),(8.6,100)]:
+            with self.subTest(volts=volts):
+                self.alarm.update_voltage(volts)
+                self.assertEqual(self.alarm.snapshot()['battery_percent'],percent)
+
     def test_low_voltage_only_sounds_on_monitor_note_and_mute_keeps_warning_visible(self):
         self.alarm.update_voltage(5.8)
         self.alarm.set_sound_enabled(False)

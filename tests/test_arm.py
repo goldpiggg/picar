@@ -14,6 +14,7 @@ sys.path.insert(0,str(ROOT))
 from picar_mission.arm_sequence import ArmProfile,ArmSequence,PoseMove,load_profile,pose_targets,save_pose,JOINTS
 from picar_mission.config import MissionConfig
 from test_approach import Harness
+from sample_poses import SAMPLE_POSES
 
 
 class FakeArm:
@@ -246,7 +247,7 @@ class SavePoseTests(unittest.TestCase):
     def setUp(self):
         self.dir=tempfile.TemporaryDirectory()
         self.path=Path(self.dir.name)/'arm_poses.json'
-        shutil.copy(ROOT/'arm_poses.json',self.path)
+        shutil.copy(SAMPLE_POSES,self.path)
 
     def tearDown(self): self.dir.cleanup()
 
@@ -302,10 +303,10 @@ class PoseRecallTests(unittest.TestCase):
 
     def test_profile_carry_speed_is_optional_and_bounded(self):
         profile=load_profile()
-        self.assertEqual(profile.carry_speed,20.)  # Default for profiles without the key.
+        self.assertEqual(profile.carry_speed,40.)  # Default for profiles without the key.
         self.assertTrue(profile.holding(72.));self.assertFalse(profile.holding(108.))
-        self.assertEqual((profile.move_speed(True),profile.move_speed(False)),(20.,40))
-        for carry in [0,45,float('nan')]:
+        self.assertEqual((profile.move_speed(True),profile.move_speed(False)),(40.,80))
+        for carry in [0,85,float('nan')]:
             data=copy.deepcopy(profile.values);data['carry_speed_deg_per_second']=carry
             with self.subTest(carry=carry),self.assertRaises(ValueError): ArmProfile(data)
 
@@ -313,10 +314,10 @@ class PoseRecallTests(unittest.TestCase):
         bridge,servo=self.bridge_with_servo(False)
         servo.nowPos[4]=72.  # Gripper near "closed": an object is held.
         info=bridge.move_to_pose('center_carry');bridge.stop_pose_move()
-        self.assertEqual(info['speed_deg_per_second'],20.)
+        self.assertEqual(info['speed_deg_per_second'],40.)
         servo.nowPos[4]=110.
         info=bridge.move_to_pose('center_clear');bridge.stop_pose_move()
-        self.assertEqual(info['speed_deg_per_second'],40)
+        self.assertEqual(info['speed_deg_per_second'],80)
 
     def test_gripper_slot_moves_only_the_gripper(self):
         self.assertEqual(pose_targets(load_profile(),'gripper_closed'),{'gripper':70})
@@ -471,9 +472,9 @@ class SequenceTests(unittest.TestCase):
             fastest[closed]=max(fastest[closed],moved/.02)
             if s.state=='COMPLETE': break
         self.assertEqual(s.state,'COMPLETE')
-        self.assertLessEqual(fastest[True],20+1e-6)   # carry_speed while holding
-        self.assertLessEqual(fastest[False],40+1e-6)  # speed_deg_per_second otherwise
-        self.assertGreater(fastest[False],20)
+        self.assertLessEqual(fastest[True],40+1e-6)   # carry_speed while holding
+        self.assertLessEqual(fastest[False],80+1e-6)  # speed_deg_per_second otherwise
+        self.assertGreater(fastest[False],40)
 
 
 class HandoffTests(unittest.TestCase):

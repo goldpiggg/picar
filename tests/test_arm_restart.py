@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import sample_poses  # noqa: F401
 from picar_mission.arm_sequence import load_motion_profile, load_profile
 from picar_mission.arm_positions import PositionStore
 from picar_mission.mission_controller import MissionController

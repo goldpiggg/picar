@@ -11,7 +11,9 @@ from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
 from picar_mission.arm_sequence import LAYOUTS, MAX_ARM_SPEED, MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_motion_profile, load_profile, pose_targets, save_pose as save_arm_pose
 from picar_mission.qr_prepare import ArmReset, QrPreparation
+from picar_mission import arm_positions
 from picar_mission.arm_positions import PositionStore
+from picar_mission.position_transfer import PositionArmProfile
 from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
 from picar_mission.heading import GyroHeading
 from picar_mission.qr_scan import emit
@@ -44,7 +46,7 @@ SESSION_ID = uuid.uuid4().hex
 # Dashboard arm speed, percent of arm_poses.json and arm_jog_speed. Kept in
 # data/ so it survives a restart without editing the taught pose file.
 ARM_SPEED_FILE = ROOT / 'data' / 'arm_speed.json'
-ARM_SPEED_MIN, ARM_SPEED_MAX, ARM_SPEED_STEP = 25, 300, 25
+ARM_SPEED_MIN, ARM_SPEED_MAX, ARM_SPEED_STEP = 25, 400, 25
 
 
 def _read_arm_speed():
@@ -108,8 +110,8 @@ def set_arm_speed(percent):
 
 
 def _make_controller():
-    # This stage ends at a side-facing QR view. A previously enabled legacy
-    # transfer plan must not bypass that wait or open the gripper.
+    # The legacy arm_poses.json transfer plan is never used here: transfers
+    # start only after the side QR sequence and use the /poses positions.
     profile = _load_motion_profile()
     preparation = QrPreparation(ArmAdapter(_servo),profile,
         {'LEFT': config.qr_prepare_left_base_deg, 'RIGHT': config.qr_prepare_right_base_deg},
@@ -118,8 +120,18 @@ def _make_controller():
     reset = ArmReset(ArmAdapter(_servo),profile,
         {joint:float(initial[channel]) for joint,channel in ArmAdapter.channels.items()},
         speed=lambda:min(arm_jog_speed(),profile.move_speed(True)))
+    # Poses are read once per mission, so teaching mid-run cannot change it.
+    transfer, blocked = None, None
+    if config.arm_enabled:
+        try:
+            transfer_profile = PositionArmProfile(profile.values,_position_store().read())
+            transfer_profile.speed_scale = profile.speed_scale
+            transfer = ArmSequence(ArmAdapter(_servo),transfer_profile)
+        except (OSError,ValueError,KeyError,TypeError) as exc:
+            blocked = str(exc)
     return DirectMissionController(config,DriveAdapter(_move,_servo),
-        _ultrasound.read_sample,runtime.snapshot,qr_preparation=preparation,
+        _ultrasound.read_sample,runtime.snapshot,qr_preparation=preparation,arm_sequence=transfer,
+        transfer_blocked_reason=blocked,
         arm_reset=reset,on_reset_complete=runtime.begin_start_scan,request_side_qr=runtime.request_side_qr,
         read_heading=None if gyro is None else gyro.read_sample,
         read_battery=_read_battery_volts)
@@ -329,7 +341,8 @@ def _dashboard_status(result):
         camera_online=camera_online,
         camera_generation=_camera_generation,
         camera_error=_camera_error,
-        arm_mode='sequence_preview',
+        arm_mode='transfer' if config.arm_enabled else 'sequence_preview',
+        arm_blocked_reason=result.get('arm_blocked_reason'),
         arm_enabled=config.arm_enabled,
         control_revision=_control_revision,
         session_id=SESSION_ID,
@@ -411,7 +424,7 @@ def _move_arm_targets(name, targets, profile, speed=None):
 
 
 def _position_store():
-    return PositionStore(ROOT/'arm_positions.json', limits=_load_motion_profile().limits)
+    return PositionStore(arm_positions.POSITIONS_FILE, limits=_load_motion_profile().limits)
 
 
 def position_data():

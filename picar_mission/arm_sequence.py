@@ -11,9 +11,11 @@ from pathlib import Path
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
+# The robot's taught profile. Tests point this at tests/fixtures instead.
+POSES_FILE = ROOT/'arm_poses.json'
 JOINTS = ('base','shoulder','elbow','gripper')
-DEFAULT_CARRY_SPEED = 20.
-MAX_ARM_SPEED = 120.  # degrees/second; also caps the dashboard speed scale.
+DEFAULT_CARRY_SPEED = 40.
+MAX_ARM_SPEED = 300.  # degrees/second; also caps the dashboard speed scale.
 PEAK_SPEED_RATIO = 1.875  # ease() peaks at 1.875x its average speed.
 MAX_TICK_SECONDS = .1  # A stalled loop must not jump ahead on the path.
 MAX_SERVO_ANGLE = 189  # 500~2500us at the original degree scale (RPIservo.ARM_MAX_ANGLE).
@@ -139,12 +141,12 @@ class ArmProfile(ArmMotionProfile):
 
 
 def load_profile(path=None):
-    path = ROOT/'arm_poses.json' if path is None else Path(path)
+    path = POSES_FILE if path is None else Path(path)
     return ArmProfile(json.loads(path.read_text(encoding='utf-8')))
 
 
 def load_motion_profile(path=None):
-    path = ROOT/'arm_poses.json' if path is None else Path(path)
+    path = POSES_FILE if path is None else Path(path)
     return ArmMotionProfile(json.loads(path.read_text(encoding='utf-8')))
 
 
@@ -155,7 +157,7 @@ def save_pose(name, angles, path=None):
     """Store taught commanded angles under a pose (base/shoulder/elbow) or a
     gripper slot. Never touches calibration_confirmed; the whole profile is
     re-validated before the file is replaced."""
-    path = ROOT/'arm_poses.json' if path is None else Path(path)
+    path = POSES_FILE if path is None else Path(path)
     values = json.loads(path.read_text(encoding='utf-8'))
     if name in POSES:
         saved = {joint:round(float(angles[joint]),1) for joint in JOINTS[:3]}

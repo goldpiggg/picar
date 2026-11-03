@@ -15,6 +15,7 @@ import flask_cors
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
+import sample_poses  # noqa: F401
 
 
 def load_bridge():
@@ -198,18 +199,18 @@ class LifecycleTests(unittest.TestCase):
             self.bridge.ARM_SPEED_FILE = Path(folder)/'arm_speed.json'
             speed = self.bridge.status()['dashboard']['arm_speed']
             self.assertEqual((speed['percent'],speed['move_deg_per_second'],speed['carry_deg_per_second'],
-                              speed['jog_deg_per_second']),(100,40.,20.,20))
+                              speed['jog_deg_per_second']),(100,80.,40.,40))
             speed = self.bridge.set_arm_speed(150)
-            self.assertEqual((speed['move_deg_per_second'],speed['carry_deg_per_second'],speed['jog_deg_per_second']),(60.,30.,30))
-            self.assertEqual(self.bridge._load_profile().move_speed(False),60.)
+            self.assertEqual((speed['move_deg_per_second'],speed['carry_deg_per_second'],speed['jog_deg_per_second']),(120.,60.,60))
+            self.assertEqual(self.bridge._load_profile().move_speed(False),120.)
             self.assertEqual(json.loads(self.bridge.ARM_SPEED_FILE.read_text(encoding='utf-8')),{'percent':150})
             self.assertEqual(self.bridge._read_arm_speed(),150)
-            speed = self.bridge.set_arm_speed(300)
-            # Capped at the profile limit (120 deg/s) and the jog limit (60 deg/s).
-            self.assertEqual((speed['move_deg_per_second'],speed['carry_deg_per_second'],speed['jog_deg_per_second']),(120.,60.,60))
-            for bad in [0,20,310,110,100.,True,'100',None]:
+            speed = self.bridge.set_arm_speed(400)
+            # Capped at the profile limit (300 deg/s) and the jog limit (150 deg/s).
+            self.assertEqual((speed['move_deg_per_second'],speed['carry_deg_per_second'],speed['jog_deg_per_second']),(300.,160.,150))
+            for bad in [0,20,310,425,110,100.,True,'100',None]:
                 with self.subTest(bad=bad),self.assertRaises(ValueError): self.bridge.set_arm_speed(bad)
-            self.assertEqual(self.bridge.arm_speed_status()['percent'],300)
+            self.assertEqual(self.bridge.arm_speed_status()['percent'],400)
             self.bridge.ARM_SPEED_FILE.write_text('{"percent":999}',encoding='utf-8')
             self.assertEqual(self.bridge._read_arm_speed(),100)
 
@@ -218,7 +219,7 @@ class LifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder,patch.object(self.bridge.controller,'arm',arm):
             self.bridge.ARM_SPEED_FILE = Path(folder)/'arm_speed.json'
             self.bridge.set_arm_speed(50)
-        self.assertEqual((arm.profile.move_speed(False),arm.profile.move_speed(True)),(20.,10.))
+        self.assertEqual((arm.profile.move_speed(False),arm.profile.move_speed(True)),(40.,20.))
 
     def test_cancel_during_pulse_does_not_busy_spin(self):
         controller = self.bridge.controller
