@@ -131,42 +131,54 @@ class DirectMissionController(MissionController):
         if self.data['state']=='ARM_WAIT':
             if now-self.stop_at >= self.cfg.arm_start_delay_seconds:
                 self.qr_preparation.start(self.data['first_direction'],now)
+                # Read PICK/PLACE while the camera is still turning toward that
+                # side: their left/right order does not change during the turn.
+                if self.request_side_qr is not None and not self.request_side_qr(self.data['first_direction'],now):
+                    raise RuntimeError('SIDE_QR_SCAN_NOT_STARTED')
                 self.data['arm_motion_enabled'] = True
                 self._state('QR_TURNING',now)
         elif self.data['state']=='QR_TURNING':
-            if self.qr_preparation.tick(now)=='READY':
+            if self.request_side_qr is not None and self._transfer_blocked_reason() is None                     and self._side_selection() is not None:
+                # Recognised mid-turn: stop turning where the arm is and go.
+                self.qr_preparation.interrupt()
+                self._start_transfer(self._side_selection(),now)
+            elif self.qr_preparation.tick(now)=='READY':
                 self._stop()
                 self.data.update(arm_motion_enabled=False,automatic_motion_enabled=False,
                                  qr_view_ready=True,pending_stages=['pick_place_qr','arm_transfer'])
-                if self.request_side_qr is None:
-                    self._state('QR_VIEW_READY',now)
-                else:
-                    if not self.request_side_qr(self.data['first_direction'],now):
-                        raise RuntimeError('SIDE_QR_SCAN_NOT_STARTED')
-                    self._state('SIDE_QR_WAIT',now)
+                self._state('QR_VIEW_READY' if self.request_side_qr is None else 'SIDE_QR_WAIT',now)
         elif self.data['state']=='SIDE_QR_WAIT':
-            qr = self.qr_snapshot()
-            if qr.get('state')=='ERROR':
-                raise SensorFault('QR_CAMERA_ERROR: '+str(qr.get('error')))
-            selected = qr.get('sequence_selection') or {}
-            position = selected.get('start_position')
-            if position in START_POSITIONS and position.startswith(self.data['first_direction']+'-'):
-                # The selection is fixed from here: QR codes hidden by the
-                # moving arm can no longer change the plan.
-                self.data['sequence_selection'] = sequence_for(position)
+            position = self._side_selection()
+            if position is not None:
                 reason = self._transfer_blocked_reason()
                 if reason is not None:
-                    self.data.update(pending_stages=['arm_transfer'],arm_blocked_reason=reason)
+                    self.data.update(sequence_selection=sequence_for(position),
+                                     pending_stages=['arm_transfer'],arm_blocked_reason=reason)
                     self._state('SEQUENCE_READY',now)
                     return
-                self.arm.start(self.data['first_direction'],position,now)
-                self.data.update(arm_motion_enabled=True,automatic_motion_enabled=True,
-                                 arm_blocked_reason=None)
-                self._state('ARM_TRANSFER',now)
+                self._start_transfer(position,now)
         elif self.data['state']=='ARM_TRANSFER':
             if self.arm.tick(now)=='COMPLETE':
                 self.data.update(arm_motion_enabled=False,automatic_motion_enabled=False,pending_stages=[])
                 self._state('COMPLETE',now)
+
+    def _side_selection(self):
+        qr = self.qr_snapshot()
+        if qr.get('state')=='ERROR':
+            raise SensorFault('QR_CAMERA_ERROR: '+str(qr.get('error')))
+        position = (qr.get('sequence_selection') or {}).get('start_position')
+        if position in START_POSITIONS and position.startswith(self.data['first_direction']+'-'):
+            return position
+        return None
+
+    def _start_transfer(self, position, now):
+        # The selection is fixed from here: QR codes hidden by the moving arm
+        # can no longer change the plan.
+        self.data['sequence_selection'] = sequence_for(position)
+        self.arm.start(self.data['first_direction'],position,now)
+        self.data.update(arm_motion_enabled=True,automatic_motion_enabled=True,
+                         arm_blocked_reason=None,qr_view_ready=True,pending_stages=['arm_transfer'])
+        self._state('ARM_TRANSFER',now)
 
     def _transfer_blocked_reason(self):
         if not self.cfg.arm_enabled:

@@ -50,6 +50,12 @@ class QrPreparation:
             self.state = 'READY'
         return self.state
 
+    def interrupt(self):
+        """The side QR codes were read mid-turn: stop here for the transfer."""
+        self.driver.hold()
+        if self.state == 'MOVING':
+            self.state = 'INTERRUPTED'
+
     def cancel(self):
         self.driver.hold()
         if self.state == 'MOVING':

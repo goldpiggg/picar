@@ -163,6 +163,56 @@ class ControllerTransferTests(unittest.TestCase):
                          taught()['positions']['LEFT-B']['approach']['angles_deg'])
         self.assertTrue(all(c[0] == 'stop' for c in h.drive.commands[wheels:]))
 
+    def turn(self, arm_enabled=True):
+        from test_direct_mission import Harness
+        from picar_mission.qr_prepare import QrPreparation
+        h = Harness('LEFT')
+        h.controller.cfg = replace(h.controller.cfg, arm_enabled=arm_enabled)
+        driver = test_arm.FakeArm()
+        h.controller.qr_preparation = QrPreparation(driver, test_arm.load_profile(), {'LEFT': 180., 'RIGHT': 0.}, 20.)
+        requests = []
+        h.controller.request_side_qr = lambda direction, now: requests.append((direction, h.controller.snapshot()['state'])) or True
+        h.controller.arm = ArmSequence(driver, profile())
+        h.echo(80.); h.near(36.); h.settle(30.)
+        for _ in range(100):
+            h.echo(None, dt=.1)
+            if h.controller.snapshot()['state'] == 'QR_TURNING': break
+        return h, driver, requests
+
+    def test_codes_read_mid_turn_start_the_transfer_at_once(self):
+        h, driver, requests = self.turn()
+        # The scan was requested when the turn began, not after it ended.
+        self.assertEqual(requests, [('LEFT', 'ARM_WAIT')])
+        h.time += .5; h.controller.step()
+        self.assertEqual(h.controller.snapshot()['state'], 'QR_TURNING')
+        mid_turn = driver.angles['base']
+        self.assertLess(mid_turn, 180.)
+        h.qr = dict(state='DIRECTION_CONFIRMED', first_direction='LEFT',
+                    sequence_selection=dict(start_position='LEFT-B'))
+        h.time += .02; h.controller.step()
+        state = h.controller.snapshot()
+        self.assertEqual(state['state'], 'ARM_TRANSFER')
+        self.assertEqual(state['sequence_selection'], sequence_for('LEFT-B'))
+        self.assertEqual(state['qr_preparation']['state'], 'INTERRUPTED')
+        self.assertLess(abs(driver.angles['base']-mid_turn), 5.)
+        for _ in range(3000):
+            h.time += .05; h.controller.step()
+            if h.controller.snapshot()['state'] == 'COMPLETE': break
+        self.assertEqual(h.controller.snapshot()['arm']['completed_transfers'], 2)
+
+    def test_disabled_transfer_finishes_the_turn_before_showing_the_sequence(self):
+        h, driver, requests = self.turn(arm_enabled=False)
+        h.qr = dict(state='DIRECTION_CONFIRMED', first_direction='LEFT',
+                    sequence_selection=dict(start_position='LEFT-A'))
+        for _ in range(300):
+            h.time += .05; h.controller.step()
+            if h.controller.snapshot()['state'] == 'SEQUENCE_READY': break
+        state = h.controller.snapshot()
+        self.assertEqual(state['state'], 'SEQUENCE_READY')
+        self.assertEqual(state['arm_blocked_reason'], 'DISABLED')
+        self.assertEqual(driver.angles['base'], 180.)
+        self.assertEqual(state['qr_preparation']['state'], 'READY')
+
     def test_stop_mid_transfer_holds_pose_and_gripper(self):
         h, driver = self.reach_selection()
         for _ in range(60):
