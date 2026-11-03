@@ -125,10 +125,21 @@ class DirectTests(unittest.TestCase):
         self.assertEqual(h.drive.commands[-1],('stop',0))
 
     def test_overshoot_pulses_backward(self):
-        h=Harness();h.echo(80.);h.near(37.)
+        h=Harness(cfg=replace(instant_steering(),reverse_correction_enabled=True));h.echo(80.);h.near(37.)
         state=h.settle(27.)
         self.assertEqual(state['state'],'PULSING')
         self.assertEqual(h.drive.commands[-1],('backward',42.9))
+
+    def test_default_overshoot_stops_and_never_reverses_or_resumes(self):
+        h=Harness();h.echo(80.);h.near(37.)
+        state=h.settle(27.)
+        self.assertEqual(state['state'],'ERROR')
+        self.assertIn('TARGET_OVERSHOOT',state['error'])
+        self.assertEqual(h.drive.commands[-1],('stop',0))
+        before=list(h.drive.commands)
+        for distance in (27.,80.,30.):h.echo(distance)
+        self.assertEqual(h.drive.commands,before)
+        self.assertFalse(any(c[0]=='backward' for c in h.drive.commands))
 
     def test_stalled_pulse_is_lengthened_within_limits(self):
         h=Harness();h.echo(80.);h.near(37.)
@@ -395,7 +406,7 @@ class DirectTests(unittest.TestCase):
         steering=[]
         drive=bridge.DriveAdapter(move,SimpleNamespace(moveAngle=lambda *args:steering.append(args)))
         now=[1.]
-        controller=DirectMissionController(instant_steering(),drive,
+        controller=DirectMissionController(replace(instant_steering(),reverse_correction_enabled=True),drive,
             lambda:dict(distance_cm=80.,captured_at=now[0]),
             lambda:dict(first_direction='LEFT'),clock=lambda:now[0],read_battery=lambda:7.)
         controller.step()

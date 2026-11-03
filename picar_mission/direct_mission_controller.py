@@ -18,6 +18,7 @@ from .sequence_selection import START_POSITIONS, sequence_for
 ZONE_SAMPLES = 3          # Fresh echoes whose median must be inside pulse_zone_cm.
 ZONE_EXIT_MARGIN_CM = 2.  # Settled this far beyond the zone: it was a false entry.
 REFERENCE_VOLTS = 7.     # Must match Server/Move.py REFERENCE_VOLTS.
+QR_DECODE_GRACE_SECONDS = .6  # Final stationary view: finish a slow Pi decode.
 
 
 class DirectMissionController(MissionController):
@@ -144,12 +145,13 @@ class DirectMissionController(MissionController):
                 self.data['arm_motion_enabled'] = True
                 self._state('QR_TURNING',now)
         elif self.data['state'] in ('QR_TURNING','QR_SCAN_MOVING'):
-            if self.view_scan_started is not None and now-self.view_scan_started >= self.cfg.qr_scan_timeout_seconds:
-                raise RuntimeError('QR_VIEW_NOT_FOUND: QR 시야 확보 실패')
-            if self.request_side_qr is not None and self._transfer_blocked_reason() is None                     and self._side_selection() is not None:
+            position = self._side_selection() if self.request_side_qr is not None else None
+            if position is not None and self._transfer_blocked_reason() is None:
                 # Recognised mid-turn: stop turning where the arm is and go.
                 self.qr_preparation.interrupt()
-                self._start_transfer(self._side_selection(),now)
+                self._accept_side_selection(position,now)
+            elif position is None and self._view_scan_expired(now):
+                raise RuntimeError('QR_VIEW_NOT_FOUND: QR 시야 확보 실패')
             elif self.qr_preparation.tick(now)=='READY':
                 if self.view_scan_started is None:
                     self.view_scan_started = now
@@ -163,16 +165,12 @@ class DirectMissionController(MissionController):
         elif self.data['state']=='SIDE_QR_WAIT':
             position = self._side_selection()
             if position is not None:
-                reason = self._transfer_blocked_reason()
-                if reason is not None:
-                    self.data.update(sequence_selection=sequence_for(position),
-                                     pending_stages=['arm_transfer'],arm_blocked_reason=reason)
-                    self._state('SEQUENCE_READY',now)
-                    return
-                self._start_transfer(position,now)
+                self._accept_side_selection(position,now)
             elif self.view_scan_enabled:
-                if now-self.view_scan_started >= self.cfg.qr_scan_timeout_seconds:
+                if self._view_scan_expired(now):
                     raise RuntimeError('QR_VIEW_NOT_FOUND: QR 시야 확보 실패')
+                if now-self.view_scan_started >= self.cfg.qr_scan_timeout_seconds:
+                    return  # Keep the final view and scan epoch while decoding.
                 if now >= self.view_scan_next and self.qr_preparation.next_scan_target() is not None:
                     # A decoded result may arrive during this check. Never erase
                     # a confirmed selection to move the camera again.
@@ -184,6 +182,18 @@ class DirectMissionController(MissionController):
             if self.arm.tick(now)=='COMPLETE':
                 self.data.update(arm_motion_enabled=False,automatic_motion_enabled=False,pending_stages=[])
                 self._state('COMPLETE',now)
+
+    def _view_scan_expired(self, now):
+        return self.view_scan_started is not None and now-self.view_scan_started >= self.cfg.qr_scan_timeout_seconds+QR_DECODE_GRACE_SECONDS
+
+    def _accept_side_selection(self, position, now):
+        reason = self._transfer_blocked_reason()
+        if reason is not None:
+            self.data.update(sequence_selection=sequence_for(position),
+                             pending_stages=['arm_transfer'],arm_blocked_reason=reason)
+            self._state('SEQUENCE_READY',now)
+        else:
+            self._start_transfer(position,now)
 
     def _side_selection(self):
         qr = self.qr_snapshot()
@@ -397,6 +407,8 @@ class DirectMissionController(MissionController):
         if abs(error) <= self.cfg.stop_tolerance_cm:
             self._stop_at_target(now,distance)
             return
+        if error < 0 and not self.cfg.reverse_correction_enabled:
+            raise SensorFault('TARGET_OVERSHOOT: automatic reverse correction is disabled')
         if self.data['pulse_count'] >= self.cfg.max_pulses:
             raise SensorFault('PULSE_LIMIT_REACHED')
         self._send_pulse(1 if error > 0 else -1,abs(error),distance,now)
@@ -419,7 +431,11 @@ class DirectMissionController(MissionController):
     def _send_pulse(self, direction, remaining_cm, distance, now):
         seconds = remaining_cm/self.cm_per_second if self.cm_per_second else self.next_pulse_seconds
         seconds = max(self.cfg.pulse_min_seconds,min(self.cfg.pulse_max_seconds,seconds))
-        (self.drive.forward if direction > 0 else self.drive.backward)(self.pulse_pwm)
+        timed_pulse = getattr(self.drive,'pulse',None)
+        if timed_pulse is not None:
+            timed_pulse(direction,self.pulse_pwm,seconds)
+        else:
+            (self.drive.forward if direction > 0 else self.drive.backward)(self.pulse_pwm)
         self.data['command_speed'] = self.pulse_pwm
         self.pulse_direction, self.pulse_duration, self.pulse_from_cm = direction, seconds, distance
         self.pulse_until = now+seconds

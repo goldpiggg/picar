@@ -88,10 +88,15 @@ def setup():
 
 def motorStop():#Motor stops
     global motor1,motor2,motor3,motor4
-    motor1.throttle = 0
-    motor2.throttle = 0
-    motor3.throttle = 0
-    motor4.throttle = 0
+    first_error = None
+    for channel in (motor1,motor2,motor3,motor4):
+        try:
+            channel.throttle = 0
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+    if first_error is not None:
+        raise first_error
 
 def Motor(channel,direction,motor_speed):
     # channel,1~4:M1~M4

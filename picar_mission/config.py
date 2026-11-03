@@ -23,6 +23,7 @@ class MissionConfig:
     pulse_min_seconds: float = 0.08
     pulse_max_seconds: float = 0.4
     max_pulses: int = 15
+    reverse_correction_enabled: bool = False
     battery_fallback_volts: float = 7.4
     distance_offset_cm: float = 0.0
     camera_backend: str = 'usb'
@@ -114,6 +115,8 @@ def load_config(path=None):
         raise ValueError('web_start_required must be boolean')
     if type(cfg.arm_enabled) is not bool:
         raise ValueError('arm_enabled must be boolean')
+    if type(cfg.reverse_correction_enabled) is not bool:
+        raise ValueError('reverse_correction_enabled must be boolean')
     if type(cfg.fast_mission_enabled) is not bool:
         raise ValueError('fast_mission_enabled must be boolean')
     if cfg.arm_enabled and not cfg.auto_approach_enabled:

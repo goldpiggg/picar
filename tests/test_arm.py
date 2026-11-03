@@ -242,6 +242,21 @@ class MotorVoltageTests(unittest.TestCase):
         move.setup();move.setup()
         self.assertEqual(len(created),1)
 
+    def test_stop_attempts_all_motors_even_when_one_write_fails(self):
+        move,_=self.load_move()
+        writes=[]
+        class Channel:
+            def __init__(self,index):self.index=index
+            @property
+            def throttle(self):return None
+            @throttle.setter
+            def throttle(self,value):
+                writes.append((self.index,value))
+                if self.index==1:raise OSError('I2C test fault')
+        for index in range(1,5):setattr(move,'motor'+str(index),Channel(index))
+        with self.assertRaisesRegex(OSError,'I2C test fault'):move.motorStop()
+        self.assertEqual(writes,[(1,0),(2,0),(3,0),(4,0)])
+
 
 class SavePoseTests(unittest.TestCase):
     def setUp(self):
