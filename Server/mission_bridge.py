@@ -13,7 +13,8 @@ from picar_mission.arm_sequence import LAYOUTS, MAX_ARM_SPEED, MAX_SERVO_ANGLE, 
 from picar_mission.qr_prepare import ArmReset, QrPreparation
 from picar_mission import arm_positions
 from picar_mission.arm_positions import PositionStore
-from picar_mission.position_transfer import PositionArmProfile
+from picar_mission.position_transfer import PositionArmProfile, fast_motion_values
+from picar_mission.arm_sequence import ArmMotionProfile
 from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
 from picar_mission.heading import GyroHeading
 from picar_mission.qr_scan import emit
@@ -80,6 +81,10 @@ def arm_jog_speed():
 def arm_speed_status():
     try:
         profile = _load_motion_profile()
+        if config.fast_mission_enabled and _mission_started and not _position_teaching:
+            preparation = getattr(controller,'qr_preparation',None)
+            if preparation is not None:
+                profile = preparation.profile
         move, carry = profile.move_speed(False), profile.move_speed(True)
     except (OSError,ValueError,KeyError,TypeError):
         move = carry = None
@@ -113,6 +118,10 @@ def _make_controller():
     # The legacy arm_poses.json transfer plan is never used here: transfers
     # start only after the side QR sequence and use the /poses positions.
     profile = _load_motion_profile()
+    if config.fast_mission_enabled:
+        scale = profile.speed_scale
+        profile = ArmMotionProfile(fast_motion_values(profile.values))
+        profile.speed_scale = scale
     preparation = QrPreparation(ArmAdapter(_servo),profile,
         {'LEFT': config.qr_prepare_left_base_deg, 'RIGHT': config.qr_prepare_right_base_deg},
         speed=lambda:min(arm_jog_speed(),profile.move_speed(True)),
@@ -259,7 +268,7 @@ def start_mission(expected_revision=None):
     The lifecycle lock makes concurrent starts idempotent and serializes stop
     against replacement. Retire every old worker before clearing its QR latch.
     """
-    global controller, runtime, _cancelled, _mission_started, _mission_started_at, _attempt, _control_revision, _position_teaching
+    global controller, runtime, _cancelled, _mission_started, _mission_started_at, _attempt, _control_revision, _position_teaching, _arm_speed_percent
     with _lock:
         if expected_revision is not None and expected_revision != _control_revision:
             raise ValueError('제어 상태가 바뀌었습니다. 현재 상태를 확인하고 다시 시작하세요')
@@ -283,6 +292,8 @@ def start_mission(expected_revision=None):
         runtime = MissionRuntime(config)
         runtime.wait_for_arm_reset()
         # Keep a stopped controller installed if profile validation fails.
+        if config.fast_mission_enabled:
+            _arm_speed_percent = ARM_SPEED_MAX
         replacement = _make_controller()
         _cancelled = False
         _position_teaching = False

@@ -131,7 +131,8 @@ class DirectMissionController(MissionController):
         if self.data['command_speed']!=0:
             raise RuntimeError('ARM_REQUIRES_STOPPED_DRIVE')
         if self.data['state']=='ARM_WAIT':
-            if now-self.stop_at >= self.cfg.arm_start_delay_seconds:
+            delay = min(self.cfg.arm_start_delay_seconds,.05) if self.cfg.fast_mission_enabled else self.cfg.arm_start_delay_seconds
+            if now-self.stop_at >= delay:
                 self.qr_preparation.start(self.data['first_direction'],now)
                 # Read PICK/PLACE while the camera is still turning toward that
                 # side: their left/right order does not change during the turn.

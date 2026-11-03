@@ -62,6 +62,32 @@ class SmallCodeTests(unittest.TestCase):
 
 @unittest.skipIf(cv2 is None, 'OpenCV is not installed')
 class CrumpledSheetTests(unittest.TestCase):
+    def test_classic_detector_path_preserves_robot_frame_decisions(self):
+        from picar_mission.qr_scan import QRReader
+        reader = QRReader(cv2)
+        reader.aruco = None  # Raspberry Pi OpenCV versions without Aruco QR.
+        for name, expected in [('side_crumpled.png','LEFT-B'),
+                               ('side_place_unread.png','LEFT-B'),('side_pick_only.png',None)]:
+            with self.subTest(frame=name):
+                found = reader.detect_side(cv2.imread(str(FIXTURES/name)), one_is_enough=True)
+                self.assertEqual(classify_side_start(found,'LEFT',settled=True),expected)
+
+    def test_ambiguous_centered_code_does_not_trigger_repeated_decode_passes(self):
+        from picar_mission.qr_scan import QRReader
+        calls = []
+        points = np.array([[[280.,180.],[340.,180.],[340.,240.],[280.,240.]]],dtype=np.float32)
+        def decode(frame):
+            calls.append('decode')
+            return True,['PICK'],points,None
+        def locate(frame):
+            calls.append('locate')
+            return False,None
+        detector = SimpleNamespace(detectAndDecodeMulti=decode,detectMulti=locate)
+        reader = QRReader(SimpleNamespace(QRCodeDetector=lambda:detector))
+        found = reader.detect_side(np.zeros((480,640),dtype=np.uint8),one_is_enough=True)
+        self.assertIsNone(classify_side_start(found,'LEFT',settled=True))
+        self.assertEqual(calls,['decode','locate'])
+
     def test_robot_frame_with_a_curled_place_sheet_still_selects_after_the_turn(self):
         # A real camera frame: PICK screen-left, PLACE on a curled sheet that
         # OpenCV 4.6 cannot decode at all.

@@ -98,7 +98,7 @@ class ProductionPreparationTests(unittest.TestCase):
         bridge=load_bridge()
         self.addCleanup(bridge.shutdown)
         bridge.config=replace(bridge.config,arm_enabled=False,direct_steer_preload_seconds=0.,
-            direct_steer_settle_seconds=0.,arm_start_delay_seconds=1.)
+            direct_steer_settle_seconds=0.,arm_start_delay_seconds=1.,fast_mission_enabled=False)
         now=[0.]
         distance=[80.]
         writes=[]

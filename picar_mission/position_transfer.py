@@ -5,6 +5,7 @@ limits, speeds, settle times and timeouts still come from arm_poses.json.
 arm_positions.json never confirms calibration itself: automatic transfer runs
 only when every slot it can use is taught and mission arm_enabled is true.
 """
+import copy
 from .arm_positions import POSES, POSITIONS
 from .arm_sequence import ArmMotionProfile
 from .sequence_selection import START_POSITIONS, sequence_for
@@ -16,6 +17,15 @@ ARM_JOINTS = ('base', 'shoulder', 'elbow')
 # Raised pass-through moves do not wait on arrival; only a move that is about
 # to grip or release settles first.
 PASS_THROUGH = ('approach_pick', 'align_pick', 'lift', 'approach_place', 'align_place', 'retreat')
+
+
+def fast_motion_values(values):
+    values = copy.deepcopy(values)
+    values['carry_speed_deg_per_second'] = values['speed_deg_per_second']
+    values['settle_seconds'] = min(values['settle_seconds'], .05)
+    values['fast_finish'] = True
+    # Keep closed angle, grip dwell and continuous holding PWM unchanged.
+    return values
 
 
 class PositionArmProfile(ArmMotionProfile):
@@ -83,4 +93,6 @@ class PositionArmProfile(ArmMotionProfile):
                 add(*slot(position, 'place'), 'closed', 'lower_place')
                 add(*slot(position, 'place'), 'open', 'release')
                 add(*above, 'open', 'retreat')
+        if self.values.get('fast_finish'):
+            steps.pop()  # Finish after the second release, without a final return.
         return steps

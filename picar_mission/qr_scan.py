@@ -150,55 +150,64 @@ class QRReader:
         return self._results(frame, texts, points)
 
     def detect_side(self, frame, one_is_enough=False):
-        """PICK and PLACE seen from the side, small and tilted in the frame.
+        """Bounded side-code decoding: native frame, then small located patches.
 
-        At 640x480 the plain multi decoder misses codes under about 90 px; a
-        2x upscale recovers them, and decoding each half alone recovers a
-        pair the multi decoder splits. The fallbacks only run while a code is
-        still missing, so a clear view costs the same as detect(). After the
-        turn one code clearly off center decides (one_is_enough), so the
-        search stops there instead of hunting for a code it cannot read.
-
-        A code found but not decoded (a curled sheet) is returned as an
-        `undecoded` entry with its position: after the turn the one decoded
-        code and that box are the two codes of this side.
+        Stop on a usable side decision. An ambiguous lone code gets one locate
+        pass instead of repeatedly decoding enlarged full-frame variants.
         """
         done = self._decided if one_is_enough else self._pair
-        located = []
-        ok, texts, points, _ = self.detector.detectAndDecodeMulti(frame)
-        found = []
-        if ok and points is not None:
-            found = self._results(frame, texts, points)
-            located += self._boxes(frame, texts, points)
-        if done(self._with_located(found, located)):
-            return self._with_located(found, located)
         cv2 = self.cv2
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
-        big = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-        mid = cv2.resize(gray, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
-        sharp = cv2.addWeighted(mid, 1.8, cv2.GaussianBlur(mid, (0, 0), 2), -.8, 0)
-        # Cheapest first; each try only adds codes still missing. A curled
-        # sheet bends its code, and which try reads it varies frame to frame.
-        tries = [('halves', gray, 1), ('multi', big, 2), ('halves', sharp, 1.5), ('halves', big, 2)]
-        if self.aruco is not None:
-            tries.insert(0, ('aruco', gray, 1))
-        for kind, image, scale in tries:
-            if kind == 'halves':
-                width = image.shape[1]
-                for x0, x1 in ((0, width*6//10), (width*4//10, width)):
-                    text, corners, _ = self.detector.detectAndDecode(image[:, x0:x1])
-                    if corners is not None:
-                        corners = corners.reshape(1, 4, 2)
-                        found = self._merge(found, self._results(image, [text], corners, scale=scale, x_offset=x0))
-                        located += self._boxes(image, [text], corners, scale=scale, x_offset=x0)
-            else:
-                detector = self.aruco if kind == 'aruco' else self.detector
-                ok, texts, points, _ = detector.detectAndDecodeMulti(image)
-                if ok and points is not None:
-                    found = self._merge(found, self._results(image, texts, points, scale=scale))
-                    located += self._boxes(image, texts, points, scale=scale)
-            if done(self._with_located(found, located)):
-                break
+        primary = self.aruco or self.detector
+        ok, texts, points, _ = primary.detectAndDecodeMulti(gray)
+        found = self._results(gray, texts, points) if points is not None else []
+        located = self._boxes(gray, texts, points) if points is not None else []
+        result = self._with_located(found, located)
+        if done(result):
+            return result
+        known = any(item['label'] in ('PICK', 'PLACE') for item in found)
+        if known and one_is_enough:
+            # Reading the same known code again cannot resolve a centered code.
+            # Locate its neighbour once, then move on to the newest camera frame.
+            ok, boxes = self.detector.detectMulti(gray)
+            if boxes is not None:
+                located += self._boxes(gray, ['']*len(boxes), boxes)
+            return self._with_located(found, located)
+        if not known and primary is not self.detector:
+            ok, texts, points, _ = self.detector.detectAndDecodeMulti(gray)
+            if points is not None:
+                found = self._merge(found, self._results(gray, texts, points))
+                located += self._boxes(gray, texts, points)
+            result = self._with_located(found, located)
+            if done(result):
+                return result
+        # At most two small, located patches; never enlarge the whole frame or
+        # build sharpened versions on every miss. Positions stay in source pixels.
+        patches = [item for item in self._with_located(found, located) if item.get('undecoded')][:2]
+        for item in patches:
+            import numpy as np
+            quad = np.asarray(item['corners_px'], dtype=np.float32)
+            x, y, w, h = cv2.boundingRect(quad)
+            pad = max(8, int(max(w, h)*.15))
+            x0, y0 = max(0, x-pad), max(0, y-pad)
+            crop = gray[y0:min(gray.shape[0], y+h+pad), x0:min(gray.shape[1], x+w+pad)]
+            crop = cv2.resize(crop, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
+            text, _, _ = self.detector.detectAndDecode(crop)
+            if normalize(text) in ('PICK', 'PLACE'):
+                found = self._merge(found, self._results(gray, [text], quad.reshape(1,4,2)))
+            result = self._with_located(found, located)
+            if done(result):
+                return result
+        if not patches and not found:
+            # One alternating half per fresh frame is enough for a fixed course.
+            turn = getattr(self, '_side_half', 0)
+            self._side_half = 1-turn
+            width = gray.shape[1]
+            x0, x1 = (0, width*6//10) if turn == 0 else (width*4//10, width)
+            text, corners, _ = self.detector.detectAndDecode(gray[:,x0:x1])
+            if corners is not None:
+                found = self._results(gray, [text], corners.reshape(1,4,2), x_offset=x0)
+                located += self._boxes(gray, [text], corners.reshape(1,4,2), x_offset=x0)
         return self._with_located(found, located)
 
     def _boxes(self, image, texts, points, scale=1, x_offset=0):
