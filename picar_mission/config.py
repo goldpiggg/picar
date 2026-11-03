@@ -43,7 +43,7 @@ class MissionConfig:
     qr_prepare_right_base_deg: float = 0.0
     # Elbow change while looking at the side QR codes, from wherever the elbow
     # is then (the reset pose). Negative lowers it, like the web "hand down".
-    qr_prepare_elbow_offset_deg: float = -30.0
+    qr_prepare_elbow_offset_deg: float = -20.0
     side_qr_settle_seconds: float = 0.3
     # Box layout from PICK/PLACE codes, read after the stop and before the arm.
     layout_frames: int = 3

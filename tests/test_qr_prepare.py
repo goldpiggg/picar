@@ -35,8 +35,8 @@ class ElbowTiltTests(unittest.TestCase):
             preparation.start('LEFT',0.)
         self.assertEqual(driver.writes,[])
 
-    def test_shipped_tilt_lowers_the_elbow_thirty_degrees(self):
-        self.assertEqual(load_config().qr_prepare_elbow_offset_deg,-30.)
+    def test_shipped_tilt_lowers_the_elbow_twenty_degrees(self):
+        self.assertEqual(load_config().qr_prepare_elbow_offset_deg,-20.)
 
 
 class PreparationSettingsTests(unittest.TestCase):
@@ -139,10 +139,10 @@ class ProductionPreparationTests(unittest.TestCase):
         self.assertFalse(status['dashboard']['finished'])
         self.assertEqual(status['dashboard']['remaining_cm'],0.)
         self.assertEqual(status['dashboard']['distance_source'],'FINAL')
-        # RIGHT turns BASE down to 0 and lowers the elbow 30 degrees to see both codes.
-        self.assertEqual(servo.nowPos[1:5],[0.,81.,73.,145.])
+        # RIGHT turns BASE down to 0 and lowers the elbow 20 degrees to see both codes.
+        self.assertEqual(servo.nowPos[1:5],[0.,81.,83.,145.])
         self.assertEqual({channel for channel,angle in writes},{1,3})
-        self.assertEqual(status['qr_preparation']['elbow_target_deg'],73.)
+        self.assertEqual(status['qr_preparation']['elbow_target_deg'],83.)
         self.assertIsNone(controller.arm)
         self.assertTrue(all(command[0]=='stop' for command in wheels[last_wheel:]))
         self.assertEqual(bridge.runtime.snapshot()['state'],'WAIT_SIDE_QR')
