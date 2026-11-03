@@ -70,6 +70,8 @@ class MissionRuntime:
                 return None
         detections = reader.detect(frame)
         with self.lock:
+            if self.data['state'] != 'WAIT_QR' or self.stop_event.is_set():
+                return None
             if self.clock()-captured_at > self.config.max_frame_age_seconds:
                 self.gate.update([], captured_at)
                 self.data.update(candidate=None, consecutive_frames=0)

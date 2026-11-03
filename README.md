@@ -1,5 +1,9 @@
 # PiCar-Pro V2 통합 프로젝트
 
+## 새 웹 미션 컨트롤
+
+`http://로봇IP:5000/dashboard`에서 **미션 시작·전체 중지·새 미션 시작**, QR 인식, LEFT/RIGHT, 초음파 거리, 진행 단계와 경과 시간을 확인합니다. 이 버전은 기본적으로 시작 버튼을 기다린 뒤 QR을 인식해야 출발합니다. 최초 자동 실행 등록과 자세한 사용법은 [WEB_CONTROL.md](docs/WEB_CONTROL.md)를 따르세요. 아래 기존 설명에서 서버 실행 직후 출발한다는 부분은 `web_start_required=false`일 때에 해당합니다.
+
 제조사 코드 전체와 QR·주행·팔 모듈을 포함합니다. **실행 파일은 기존 `Server/WebServer.py`입니다. 새 main.py는 없습니다.**
 
 기본 동작은 **LEFT/RIGHT QR 1회 인식 → 조향 정렬 → 배터리 보정된 느린 속도로 직진(자이로 방향 유지) → 38cm에서 브레이크 → 펄스로 조금씩 움직여 30cm ±1cm에 정지**입니다. 방향은 처음 인식한 값으로 유지합니다. 기본 팔 동작은 꺼져 있습니다.
@@ -235,3 +239,9 @@ Adeept is committed to assist customers in their education of robotics, programm
 ## Copyright
 
 Adeept brand and logo are copyright of Shenzhen Adeept Technology Co., Ltd. and cannot be used without written permission.
+
+### 네 자리의 팔 자세 저장과 PC 미리보기
+
+`/poses`에서 LEFT-A·RIGHT-A·LEFT-B·RIGHT-B의 접근·집기·놓기 자세를 따로 저장합니다. A는 출발 QR 쪽, B는 출발선 쪽입니다. 기존 자세는 `/poses/legacy`에 보존되며 새 자리의 QR 자동 선택은 다음 단계입니다. `python scripts/preview_positions.py`로 로봇 없이 `http://127.0.0.1:5082/poses`를 확인할 수 있습니다. 자세한 내용은 [ARM_POSITIONS.md](docs/ARM_POSITIONS.md)를 참고하세요.
+
+대시보드와 자세 저장 화면에서 저전압 경고음을 끄거나 다시 켤 수 있습니다. 무시하기는 묵음 표시를 남기며, 켜기 자체가 소리를 내지는 않습니다. [전압 경고음 안내](docs/BATTERY_SOUND.md)를 참고하세요.

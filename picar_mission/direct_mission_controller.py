@@ -305,6 +305,8 @@ class DirectMissionController(MissionController):
 
     def _wait_seconds(self):
         # End a pulse on time instead of up to one control period late.
+        if self.data['state'] in TERMINAL:
+            return self.cfg.control_period_seconds
         until = self.pulse_until
         if until is None:
             return self.cfg.control_period_seconds

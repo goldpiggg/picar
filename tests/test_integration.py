@@ -145,10 +145,12 @@ class CameraConnectionTests(unittest.TestCase):
             def release(self): self.released=True
         class CVWorker:
             CVThreading=0
+            def is_alive(self): return True
             def start(self): pass
             def pause(self): pass
         capture=Capture(); received=[]
         bridge=SimpleNamespace(config=MissionConfig(),submit_frame=received.append,
+                               camera_capture_started=lambda:None,camera_failed=lambda message:self.fail(message),
                                runtime=SimpleNamespace(fail=lambda message: self.fail(message)))
         namespace=dict(BaseCamera=object,CVThread=CVWorker,cv2=cv2,mission_bridge=bridge,hflip=0,vflip=0,ImgIsNone=0)
         exec(compile(ast.Module(body=[node],type_ignores=[]),'camera_opencv.py','exec'),namespace)
