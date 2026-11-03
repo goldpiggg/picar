@@ -16,7 +16,7 @@ REQUIRED_COMMON = ('gripper_open', 'gripper_closed')
 ARM_JOINTS = ('base', 'shoulder', 'elbow')
 # Raised pass-through moves do not wait on arrival; only a move that is about
 # to grip or release settles first.
-PASS_THROUGH = ('approach_pick', 'align_pick', 'lift', 'approach_place', 'align_place', 'retreat')
+PASS_THROUGH = ('approach_pick', 'align_pick', 'lift', 'rotate_place', 'approach_place', 'align_place', 'retreat')
 
 
 def fast_motion_values(values):
@@ -29,7 +29,7 @@ def fast_motion_values(values):
 
 
 class PositionArmProfile(ArmMotionProfile):
-    def __init__(self, motion_values, positions):
+    def __init__(self, motion_values, positions, carry_clearance=None):
         super().__init__(motion_values)
         missing = [position+' '+pose for position in POSITIONS for pose in POSES
                    if positions['positions'][position][pose] is None]
@@ -47,6 +47,11 @@ class PositionArmProfile(ArmMotionProfile):
             self.check_angles({**neutral, 'gripper': grip})
         for pose in self.poses.values():
             self.check_angles({**pose, 'gripper': self.gripper['open']})
+        self.carry_clearance = None if carry_clearance is None else dict(carry_clearance)
+        if self.carry_clearance is not None:
+            if set(self.carry_clearance) != {'shoulder','elbow'}:
+                raise ValueError('Carry clearance requires only shoulder and elbow')
+            self.check_angles({**neutral,**self.carry_clearance,'gripper':self.gripper['closed']})
         # Taught-and-complete is the confirmation; arm_enabled is the switch.
         self.calibrated = True
 
@@ -82,14 +87,27 @@ class PositionArmProfile(ArmMotionProfile):
                     add(*above, 'open', 'align_pick')
                 add(*slot(position, 'pick'), 'open', 'lower_pick')
                 add(*slot(position, 'pick'), 'closed', 'grasp')
-                add(*above, 'closed', 'lift')
+                if self.carry_clearance is None:
+                    add(*above, 'closed', 'lift')
+                else:
+                    # Lift without turning away from the actual pickup BASE.
+                    add(position+' carry height',{'base':self.poses[(position,'pick')]['base'],
+                        **self.carry_clearance},'closed','lift')
+                    steps[-1]['settle_seconds'] = max(.1,self.values['settle_seconds'])
             else:
                 # Every PLACE is across from its PICK: one raised move from
                 # above the pick straight to above the place, without stopping.
-                add(*slot(position, 'approach'), 'closed', 'approach_place')
                 above = self.above(position, 'place')
-                if above[0] != position+' approach':
-                    add(*above, 'closed', 'align_place')
+                if self.carry_clearance is None:
+                    add(*slot(position, 'approach'), 'closed', 'approach_place')
+                    if above[0] != position+' approach':
+                        add(*above, 'closed', 'align_place')
+                else:
+                    # Only BASE changes during the crossing. Start lowering
+                    # after the destination's actual PLACE BASE is reached.
+                    add(position+' carry height',{'base':self.poses[(position,'place')]['base'],
+                        **self.carry_clearance},'closed','rotate_place')
+                    add(*above,'closed','approach_place')
                 add(*slot(position, 'place'), 'closed', 'lower_place')
                 add(*slot(position, 'place'), 'open', 'release')
                 add(*above, 'open', 'retreat')

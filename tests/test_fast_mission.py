@@ -27,7 +27,8 @@ class FastMissionTests(unittest.TestCase):
     def test_fast_transfer_holds_closed_through_every_loaded_move(self):
         motion=load_profile()
         profile=PositionArmProfile(fast_motion_values(motion.values),
-            PositionStore(ROOT/'arm_positions.json',motion.limits).read())
+            PositionStore(ROOT/'arm_positions.json',motion.limits).read(),
+            carry_clearance={'shoulder':153.,'elbow':156.})
         profile.speed_scale=4.
         self.assertLessEqual(profile.move_speed(True),MAX_ARM_SPEED)
         for start in START_POSITIONS:
@@ -38,10 +39,18 @@ class FastMissionTests(unittest.TestCase):
             for step in sequence.steps:
                 if step['action'] in ('grasp','release'):
                     self.assertEqual(step['settle_seconds'],motion.values['grip_settle_seconds'])
-                if step['action'] in ('lift','approach_place','align_place','lower_place'):
+                if step['action'] in ('lift','rotate_place','approach_place','align_place','lower_place'):
                     self.assertEqual(step['angles_deg']['gripper'],profile.gripper['closed'])
             for tick in range(1,3000):
-                if sequence.tick(tick*.02)=='COMPLETE': break
+                action=sequence.steps[sequence.index]['action']
+                base=driver.angles['base']
+                state=sequence.tick(tick*.02)
+                if action=='lift':self.assertEqual(driver.angles['base'],base)
+                if action=='rotate_place':
+                    self.assertEqual(driver.angles['shoulder'],153.)
+                    self.assertEqual(driver.angles['elbow'],156.)
+                    self.assertEqual(driver.angles['gripper'],profile.gripper['closed'])
+                if state=='COMPLETE': break
             self.assertEqual(sequence.completed_transfers,2)
             self.assertGreater(driver.holds,0)
 

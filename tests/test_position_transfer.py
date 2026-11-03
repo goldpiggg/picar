@@ -48,6 +48,41 @@ def profile(skip=()):
 
 
 class PlanTests(unittest.TestCase):
+    def test_clearance_lift_then_base_only_crossing_for_every_sequence(self):
+        data=taught();original=copy.deepcopy(data)
+        # Make BASE differ from approach to catch a turn hidden in lowering.
+        for position in POSITIONS:
+            data['positions'][position]['pick']['angles_deg']['base']+=2
+            data['positions'][position]['place']['angles_deg']['base']-=3
+        original=copy.deepcopy(data)
+        p=PositionArmProfile(test_arm.load_profile().values,data,
+            carry_clearance={'shoulder':153.,'elbow':156.})
+        for start in START_POSITIONS:
+            steps=p.plan(start.split('-')[0],start)
+            lifts=[i for i,s in enumerate(steps) if s['action']=='lift']
+            self.assertEqual(len(lifts),2)
+            for i in lifts:
+                grasp,lift,turn,approach=steps[i-1:i+3]
+                self.assertEqual(grasp['action'],'grasp')
+                self.assertEqual(turn['action'],'rotate_place')
+                self.assertEqual(approach['action'],'approach_place')
+                self.assertEqual(lift['angles_deg']['base'],grasp['angles_deg']['base'])
+                self.assertGreaterEqual(lift['settle_seconds'],.1)
+                for joint,value in [('shoulder',153.),('elbow',156.),('gripper',CLOSED)]:
+                    self.assertEqual(lift['angles_deg'][joint],value)
+                    self.assertEqual(turn['angles_deg'][joint],value)
+                lower=steps[i+3]
+                self.assertEqual(lower['action'],'lower_place')
+                self.assertEqual(turn['angles_deg']['base'],lower['angles_deg']['base'])
+                self.assertEqual(approach['angles_deg']['base'],turn['angles_deg']['base'])
+        self.assertEqual(data,original)
+
+    def test_clearance_rejects_invalid_joint_targets(self):
+        for clearance in ({'base':90,'shoulder':153,'elbow':156},
+                          {'shoulder':190,'elbow':156},{'shoulder':153,'elbow':float('nan')}):
+            with self.assertRaises(ValueError):
+                PositionArmProfile(test_arm.load_profile().values,taught(),carry_clearance=clearance)
+
     def test_left_a_follows_the_agreed_four_steps(self):
         steps = [(s['action'], s['pose'], s['gripper']) for s in profile().plan('LEFT', 'LEFT-A')]
         self.assertEqual(steps, [
@@ -266,6 +301,7 @@ class BridgeTests(unittest.TestCase):
         controller = self.make(True, taught())
         self.assertIsInstance(controller.arm.profile, PositionArmProfile)
         self.assertIsNone(controller._transfer_blocked_reason())
+        self.assertEqual(controller.arm.profile.carry_clearance,{'shoulder':153.,'elbow':156.})
 
     def test_untaught_positions_do_not_block_the_mission(self):
         controller = self.make(True, empty_profile())
