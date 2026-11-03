@@ -6,10 +6,10 @@
   <meta name="theme-color" content="#143e35">
   <title>PiCar · 자리별 팔 자세 저장</title>
   <link rel="stylesheet" href="/dashboard/assets/dashboard.css">
-  <link rel="stylesheet" href="/positions/assets/positions.css">
+  <link rel="stylesheet" href="/positions/assets/positions.css?v=recall-20261104">
   <link rel="stylesheet" href="/battery/assets/battery_alarm.css">
   <script src="/battery/assets/battery_alarm.js" defer></script>
-  <script src="/positions/assets/positions.js" defer></script>
+  <script src="/positions/assets/positions.js?v=recall-20261104" defer></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -39,7 +39,7 @@
       <p class="action-feedback position-feedback" id="feedback" role="status" aria-live="polite"></p>
 
       <section class="position-workspace" aria-label="네 자리의 팔 자세">
-        <div class="section-heading"><div><h2>자리별 자세</h2><p>차량이 출발 QR을 바라보는 기준입니다. PICK/PLACE 역할이 바뀌어도 자리 이름은 유지됩니다.</p></div><span class="quiet-label">4 POSITIONS</span></div>
+        <div class="section-heading"><div><h2>자리별 자세</h2><p>수동 모드에서 ▶ 이동 → 각도 미세 조절 → 다시 저장 순서로 보정하세요. 이동만으로 저장값은 바뀌지 않습니다.</p></div><span class="quiet-label">4 POSITIONS</span></div>
         <div class="orientation-mark"><span></span><strong>↑ LEFT / RIGHT 출발 QR</strong><span></span></div>
         <div class="side-labels"><span>왼쪽 · LEFT</span><span>오른쪽 · RIGHT</span></div>
         <div class="position-grid" id="position-grid"></div>
@@ -50,7 +50,7 @@
         <div class="section-heading"><div><h2>공통 자세</h2><p>집게의 열림·닫힘과 중앙을 통과하는 자세를 함께 저장합니다.</p></div><span class="quiet-label" id="common-progress">0 / 4 SAVED</span></div>
         <div class="common-grid" id="common-grid"></div>
       </section>
-      <div class="position-notes"><p>저장값은 마지막으로 보낸 명령각입니다. 실제 팔의 위치를 측정한 값은 아닙니다.</p><p>자리별 자세는 보관·이동 확인에 사용합니다. 미션 화면은 QR로 선택한 시퀀스를 표시하고 자동 운반은 대기합니다.</p><a href="/poses/legacy" id="legacy-link">기존 PICK/PLACE 저장값 보기 ↗</a></div>
+      <div class="position-notes"><p>저장값은 마지막으로 보낸 명령각입니다. 실제 팔의 위치를 측정한 값은 아닙니다.</p><p>자리별 자세와 중앙 자세로 이동할 때 집게 각도는 유지합니다. 공통 집게 열기·닫기의 ▶ 이동은 저장된 집게 각도를 실행합니다.</p><p>다시 저장을 누르고 덮어쓰기를 확인하면 선택한 자리의 자세만 바뀝니다. 팔 이동 정지로 이동을 중단할 수 있습니다.</p><a href="/poses/legacy" id="legacy-link">기존 PICK/PLACE 저장값 보기 ↗</a></div>
       <footer>PiCar · ARM POSITION LIBRARY <span>A → 출발 QR / B → 출발선</span></footer>
     </div>
   </main>

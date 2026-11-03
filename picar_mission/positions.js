@@ -12,7 +12,7 @@
 
   function row(position, pose, label) {
     const key = `${position}-${pose}`;
-    return `<div class="pose-row"><div><div class="pose-label">${label}<span class="pose-status" id="status-${key}">미저장</span></div><div class="stored-angles" id="angles-${key}">아직 저장한 자세가 없어요</div></div><div class="pose-actions"><button type="button" data-save data-position="${position}" data-pose="${pose}" disabled>현재 자세 저장</button><button type="button" class="recall" data-move data-position="${position}" data-pose="${pose}" disabled>이동 확인</button></div></div>`;
+    return `<div class="pose-row"><div><div class="pose-label">${label}<span class="pose-status" id="status-${key}">미저장</span></div><div class="stored-angles" id="angles-${key}">아직 저장한 자세가 없어요</div></div><div class="pose-actions"><button type="button" data-save data-position="${position}" data-pose="${pose}" aria-label="${position} ${label} 현재 각도 저장" disabled>현재 자세 저장</button><button type="button" class="recall" data-move data-position="${position}" data-pose="${pose}" aria-label="${position} ${label} 저장한 자세로 이동" disabled>▶ 이동</button></div></div>`;
   }
   $('position-grid').innerHTML = positions.map(position => {
     const side = position.startsWith('LEFT')?'왼쪽':'오른쪽', letter = position.slice(-1);
@@ -48,8 +48,18 @@
   function buttons() {
     const canTeach = connected && dataAvailable && latest?.manual && latest?.angles;
     const moving = latest?.move?.state==='MOVING';
-    document.querySelectorAll('[data-save]').forEach(button => { button.disabled = !canTeach || busy || moving; });
-    document.querySelectorAll('[data-move]').forEach(button => { button.disabled = !canTeach || busy || !record(button.dataset.position,button.dataset.pose); });
+    document.querySelectorAll('[data-save]').forEach(button => {
+      button.disabled = !canTeach || busy || moving;
+      button.textContent = record(button.dataset.position,button.dataset.pose)?'다시 저장':'현재 자세 저장';
+      button.title = '현재 팔 각도를 이 자세에 저장합니다. 이동만으로는 저장값이 바뀌지 않습니다.';
+    });
+    document.querySelectorAll('[data-move]').forEach(button => {
+      const saved = record(button.dataset.position,button.dataset.pose);
+      const active = moving && latest.move.name===`${button.dataset.position} / ${button.dataset.pose}`;
+      button.disabled = !canTeach || busy || moving || !saved;
+      button.textContent = active?'이동 중…':'▶ 이동';
+      button.title = !saved?'먼저 이 자세를 저장하세요':!canTeach?'팔 수동 조절 시작을 먼저 누르세요':'저장한 각도로 이동합니다. 저장값은 바뀌지 않습니다.';
+    });
     $('arm-stop').disabled = !connected;
     $('teaching-toggle').disabled = busy || !connected || !dataAvailable || !latest?.can_switch_teaching;
     joints.forEach(([name]) => { $(`slider-${name}`).disabled = busy || !canTeach; });
@@ -150,7 +160,8 @@
     if (latest?.preview && !latest.supports_joint_control) render(await request('/positions/preview/angles','POST',{angles:previewAngles}));
   }
   async function act(kind, position, pose) {
-    if (busy || !connected || !dataAvailable) return;
+    if (busy || !connected || !dataAvailable || !latest?.manual || !latest?.angles || latest?.move?.state==='MOVING') return;
+    if (kind==='move' && !record(position,pose)) return;
     const version = actionVersion;
     busy = true; buttons();
     try {
@@ -160,7 +171,7 @@
       await refresh();
       if (version!==actionVersion) return;
       const label = (position==='COMMON'?common:poses).find(([name]) => name===pose)?.[1] || pose;
-      feedback(`${latest.preview?'가상 ':''}${position==='COMMON'?'공통':position} · ${label} ${kind==='save'?'저장 완료':'이동 확인 시작'}`);
+      feedback(`${latest.preview?'가상 ':''}${position==='COMMON'?'공통':position} · ${label} ${kind==='save'?'저장 완료':'저장한 자세로 이동 시작 · 이동만으로 저장값은 바뀌지 않습니다'}`);
     } catch (error) { if (version===actionVersion) feedback(error.message,true); }
     finally { busy = false; buttons(); }
   }
@@ -176,8 +187,9 @@
     $('confirm-dialog').showModal();
   }
   document.querySelectorAll('[data-save],[data-move]').forEach(button => button.addEventListener('click',() => {
+    if (button.disabled) return;
     const {position,pose} = button.dataset, kind = button.hasAttribute('data-save')?'save':'move';
-    if (kind==='move' || record(position,pose)) confirm(kind,position,pose);
+    if (kind==='save' && record(position,pose)) confirm(kind,position,pose);
     else act(kind,position,pose);
   }));
   $('confirm-dialog').addEventListener('close',() => {
