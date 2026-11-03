@@ -10,8 +10,9 @@ from test_approach import Harness
 
 class RelaxedStartTests(unittest.TestCase):
     def test_repository_and_fallback_settings_agree(self):
-        # The shipped file turns transfer on; the code fallback keeps it off.
-        self.assertEqual(load_config(),replace(MissionConfig(),arm_enabled=True))
+        # The shipped file turns transfer on and confirms the side QR from one
+        # frame; the code fallback keeps the arm off and asks for three.
+        self.assertEqual(load_config(),replace(MissionConfig(),arm_enabled=True,layout_frames=1))
         cfg=load_config()
         self.assertEqual((cfg.required_frames,cfg.hold_seconds),(1,0.))
         self.assertEqual((cfg.target_distance_cm,cfg.stop_tolerance_cm),(30.,1.))

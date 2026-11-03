@@ -466,7 +466,8 @@ class SequenceTests(unittest.TestCase):
         fastest={True:0.,False:0.}
         for tick in range(1,20000):
             before=driver.read_angles();step=s.steps[s.index]
-            closed=step['gripper']=='closed' or s.holding
+            # A move that opens the gripper (release) is no longer carrying.
+            closed=step['gripper']=='closed' or (s.holding and step['gripper'] is None)
             s.tick(tick*.02)
             moved=max(abs(driver.angles[j]-before[j]) for j in JOINTS)
             fastest[closed]=max(fastest[closed],moved/.02)

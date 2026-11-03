@@ -34,7 +34,6 @@ def main():
         print('자동 운반 불가: %s' % exc)
         return 1
     print('집게 열기 %g° / 닫기 %g°' % (profile.gripper['open'], profile.gripper['closed']))
-    print('운반 자세 center_carry: %s' % profile.carry_source)
     for start in START_POSITIONS:
         steps = profile.plan(start.split('-')[0], start)
         print('\n[%s 시작] %d단계' % (start, len(steps)))

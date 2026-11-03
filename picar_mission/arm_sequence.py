@@ -287,8 +287,9 @@ class ArmSequence:
                 raise RuntimeError('ARM_CLOCK_REVERSED')
             step=self.steps[self.index]
             if self.motion is None:
-                # Slow down whenever an object is (or is about to be) held.
-                carrying=self.holding or step['gripper']=='closed'
+                # Slow down whenever an object is (or is about to be) held. A
+                # move that opens the gripper on the way is not carrying.
+                carrying=step['gripper']=='closed' or (self.holding and step['gripper'] is None)
                 targets={**step['angles_deg']}
                 if targets['gripper'] is None:
                     targets['gripper']=self.current['gripper']

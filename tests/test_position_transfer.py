@@ -14,11 +14,11 @@ from picar_mission.sequence_selection import START_POSITIONS, sequence_for
 
 OPEN, CLOSED = 120., 60.
 FIXTURES = Path(__file__).resolve().parent/'fixtures'
-RAISED = ('approach', 'center_carry')
+RAISED = ('approach',)
 
 
 def robot_profile():
-    """The robot's saved files as of 2026-11-03: center_carry only in arm_poses.json."""
+    """The robot's saved files as of 2026-11-03."""
     read = lambda name: json.loads((FIXTURES/name).read_text(encoding='utf-8'))
     return PositionArmProfile(read('robot_arm_poses.json'), read('robot_arm_positions.json'))
 
@@ -51,16 +51,14 @@ class PlanTests(unittest.TestCase):
     def test_left_a_follows_the_agreed_four_steps(self):
         steps = [(s['action'], s['pose'], s['gripper']) for s in profile().plan('LEFT', 'LEFT-A')]
         self.assertEqual(steps, [
-            ('approach_pick', 'LEFT-A approach', None), ('open_gripper', 'LEFT-A approach', 'open'),
+            ('approach_pick', 'LEFT-A approach', 'open'),
             ('lower_pick', 'LEFT-A pick', 'open'), ('grasp', 'LEFT-A pick', 'closed'),
-            ('lift', 'LEFT-A approach', 'closed'),
-            ('carry_center', 'COMMON center_carry', 'closed'), ('approach_place', 'RIGHT-A approach', 'closed'),
+            ('lift', 'LEFT-A approach', 'closed'), ('approach_place', 'RIGHT-A approach', 'closed'),
             ('lower_place', 'RIGHT-A place', 'closed'), ('release', 'RIGHT-A place', 'open'),
             ('retreat', 'RIGHT-A approach', 'open'),
             ('approach_pick', 'RIGHT-B approach', 'open'),
             ('lower_pick', 'RIGHT-B pick', 'open'), ('grasp', 'RIGHT-B pick', 'closed'),
-            ('lift', 'RIGHT-B approach', 'closed'),
-            ('carry_center', 'COMMON center_carry', 'closed'), ('approach_place', 'LEFT-B approach', 'closed'),
+            ('lift', 'RIGHT-B approach', 'closed'), ('approach_place', 'LEFT-B approach', 'closed'),
             ('lower_place', 'LEFT-B place', 'closed'), ('release', 'LEFT-B place', 'open'),
             ('retreat', 'LEFT-B approach', 'open')])
 
@@ -81,12 +79,24 @@ class PlanTests(unittest.TestCase):
     def test_robot_data_turns_base_above_the_box_then_lowers(self):
         steps = robot_profile().plan('LEFT', 'LEFT-A')
         self.assertEqual([(s['action'], s['pose']) for s in steps[:6]], [
-            ('approach_pick', 'LEFT-A approach'), ('open_gripper', 'LEFT-A approach'),
-            ('align_pick', 'LEFT-A above pick'), ('lower_pick', 'LEFT-A pick'),
-            ('grasp', 'LEFT-A pick'), ('lift', 'LEFT-A above pick')])
-        self.assertEqual({k: steps[2]['angles_deg'][k] for k in ('base', 'shoulder', 'elbow')},
+            ('approach_pick', 'LEFT-A approach'), ('align_pick', 'LEFT-A above pick'),
+            ('lower_pick', 'LEFT-A pick'), ('grasp', 'LEFT-A pick'),
+            ('lift', 'LEFT-A above pick'), ('approach_place', 'RIGHT-A approach')])
+        self.assertEqual({k: steps[1]['angles_deg'][k] for k in ('base', 'shoulder', 'elbow')},
                          dict(base=139., shoulder=111., elbow=113.))
-        self.assertEqual((steps[1]['angles_deg']['gripper'], steps[4]['angles_deg']['gripper']), (150., 72.))
+        self.assertEqual((steps[0]['angles_deg']['gripper'], steps[3]['angles_deg']['gripper']), (150., 72.))
+
+    def test_raised_moves_do_not_stop_and_sides_cross_in_one_move(self):
+        steps = robot_profile().plan('LEFT', 'LEFT-A')
+        for step in steps:
+            with self.subTest(step=step['action']):
+                grips = step['action'] in ('grasp', 'release')
+                lowers = step['action'] in ('lower_pick', 'lower_place')
+                self.assertEqual(step['settle_seconds'] > 0, grips or lowers)
+        crossings = [(a['pose'], b['pose']) for a, b in zip(steps, steps[1:])
+                     if a['pose'].split()[0].split('-')[0] != b['pose'].split()[0].split('-')[0]]
+        self.assertEqual(crossings, [('LEFT-A above pick', 'RIGHT-A approach'),
+                                     ('RIGHT-B above pick', 'LEFT-B approach')])
 
     def test_committed_robot_files_are_ready_for_every_start(self):
         root = FIXTURES.parent.parent
@@ -95,15 +105,12 @@ class PlanTests(unittest.TestCase):
         for start in START_POSITIONS:
             self.assertEqual(p.plan(start.split('-')[0], start)[-1]['action'], 'retreat')
 
-    def test_legacy_center_carry_fills_an_untaught_one(self):
-        p = robot_profile()
-        self.assertEqual(p.carry_source, 'arm_poses.json')
-        self.assertEqual(p.poses[('COMMON', 'center_carry')], dict(base=92., shoulder=97., elbow=113.))
-        self.assertEqual(profile().carry_source, 'arm_positions.json')
+    def test_untaught_center_carry_is_not_required(self):
+        profile({('COMMON', 'center_carry')})
 
     def test_taught_gripper_angles_replace_the_legacy_ones(self):
         grips = {s['action']: s['angles_deg']['gripper'] for s in profile().plan('RIGHT', 'RIGHT-B')}
-        self.assertEqual((grips['open_gripper'], grips['grasp']), (OPEN, CLOSED))
+        self.assertEqual((grips['approach_pick'], grips['grasp']), (OPEN, CLOSED))
         self.assertTrue(profile().holding(CLOSED))
 
     def test_start_must_be_on_the_qr_side(self):
@@ -113,8 +120,8 @@ class PlanTests(unittest.TestCase):
     def test_untaught_slots_are_named(self):
         values = copy.deepcopy(test_arm.load_profile().values)
         del values['positions']
-        with self.assertRaisesRegex(ValueError, 'ARM_POSES_INCOMPLETE: RIGHT-B place, COMMON center_carry'):
-            PositionArmProfile(values, taught({('RIGHT-B', 'place'), ('COMMON', 'center_carry')}))
+        with self.assertRaisesRegex(ValueError, 'ARM_POSES_INCOMPLETE: RIGHT-B place, COMMON gripper_closed$'):
+            PositionArmProfile(values, taught({('RIGHT-B', 'place'), ('COMMON', 'gripper_closed')}))
 
 
 class ControllerTransferTests(unittest.TestCase):
