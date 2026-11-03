@@ -143,7 +143,8 @@ class USBRecoveryTests(unittest.TestCase):
         class Capture:
             released = False
             reads = 0
-            def set(self,*args): pass
+            def __init__(self):self.settings=[]
+            def set(self,*args):self.settings.append(args)
             def isOpened(self): return True
             def read(self):
                 self.reads += 1
@@ -153,7 +154,7 @@ class USBRecoveryTests(unittest.TestCase):
 
     def test_single_bad_read_is_tolerated_without_failing_qr(self):
         import cv2,numpy as np
-        raw = np.zeros((16,16,3),dtype=np.uint8)
+        raw = np.zeros((480,640,3),dtype=np.uint8)
         capture = self.capture([(False,None),(True,raw)])
         camera,workers,received,failures,starts = self.camera([capture])
         with patch.object(cv2,'VideoCapture',return_value=capture):
@@ -168,7 +169,7 @@ class USBRecoveryTests(unittest.TestCase):
     def test_repeated_bad_reads_release_device_and_retry_reuses_cv_worker(self):
         import cv2,numpy as np
         bad = self.capture([(False,None)])
-        good = self.capture([(True,np.zeros((16,16,3),dtype=np.uint8))])
+        good = self.capture([(True,np.zeros((480,640,3),dtype=np.uint8))])
         camera,workers,received,failures,starts = self.camera([bad,good])
         with patch.object(cv2,'VideoCapture',side_effect=[bad,good]):
             with self.assertRaisesRegex(RuntimeError,'USB camera frame read failed'): next(camera.frames())
@@ -181,6 +182,36 @@ class USBRecoveryTests(unittest.TestCase):
         self.assertEqual(len(starts),2)
         self.assertEqual(len(failures),1)
         self.assertTrue(good.released)
+
+    def test_low_resolution_negotiates_yuyv_and_only_publishes_full_size(self):
+        import cv2,numpy as np
+        small=np.zeros((120,160,3),dtype=np.uint8)
+        full=np.zeros((480,640,3),dtype=np.uint8)
+        capture=self.capture([(True,small)]*3+[(True,full)])
+        camera,_,received,failures,_=self.camera([capture])
+        with patch.object(cv2,'VideoCapture',return_value=capture):
+            stream=camera.frames()
+            jpg=next(stream)
+            stream.close()
+        self.assertEqual(capture.settings[:3],[(cv2.CAP_PROP_FOURCC,cv2.VideoWriter_fourcc(*'MJPG')),
+            (cv2.CAP_PROP_FRAME_WIDTH,640),(cv2.CAP_PROP_FRAME_HEIGHT,480)])
+        self.assertIn((cv2.CAP_PROP_FOURCC,cv2.VideoWriter_fourcc(*'YUYV')),capture.settings)
+        self.assertEqual(cv2.imdecode(np.frombuffer(jpg,np.uint8),cv2.IMREAD_COLOR).shape,(480,640,3))
+        self.assertEqual(len(received),1)
+        self.assertIs(received[0],full)
+        self.assertEqual(failures,[])
+
+    def test_persistent_low_resolution_reports_error_and_releases_capture(self):
+        import cv2,numpy as np
+        capture=self.capture([(True,np.zeros((120,160,3),dtype=np.uint8))])
+        camera,_,received,failures,_=self.camera([capture])
+        with patch.object(cv2,'VideoCapture',return_value=capture):
+            with self.assertRaisesRegex(RuntimeError,'resolution mismatch.*160x120'):
+                next(camera.frames())
+        self.assertEqual(capture.reads,6)
+        self.assertTrue(capture.released)
+        self.assertEqual(received,[])
+        self.assertEqual(len(failures),1)
 
 
 class QRFailureRaceTests(unittest.TestCase):
