@@ -48,7 +48,7 @@ ARM_RESET → WAIT_QR → STEER_PRELOAD(0.2초) → STEER_SETTLE(0.3초) → DRI
 
 `approach_complete=true`는 차가 멈춘 상태에서 잰 중앙값이 30 ±1cm였다는 뜻입니다. 이때 `target_stop_latched=true`, `final_distance_cm`에 그 거리가 기록되고, 이후 바퀴 전진·후진·조향 명령을 잠급니다. 새 QR이나 거리값으로 잠금을 풀거나 다시 출발하지 않습니다.
 
-새 미션은 `ARM_RESET`에서 팔 4개 관절을 서버 시작 자세(기본 모두 90°)로 복원한 뒤 출발 QR을 기다립니다. 정지 후 `ARM_WAIT`에서 기본 1초를 기다리고 `QR_TURNING`에서 BASE만 돌립니다. 어깨·팔꿈치·집게는 유지하며, `SIDE_QR_WAIT`에서 PICK과 PLACE QR의 좌우 순서를 비교합니다. RIGHT를 볼 때 화면 왼쪽이 A, LEFT를 볼 때 화면 오른쪽이 A입니다. 같은 결과가 3프레임 연속 확인되면 `SEQUENCE_READY`에서 LEFT-A·LEFT-B·RIGHT-A·RIGHT-B 중 시작할 자리와 전체 운반 순서를 확정합니다. 이후 QR이 가려져도 바뀌지 않습니다. `arm_enabled=true`이고 `/poses`의 네 자리 approach·pick·place와 공통 집게 열기·닫기·`center_carry`가 모두 저장돼 있으면 `ARM_TRANSFER`에서 확정한 순서대로 두 물체를 옮기고 `COMPLETE`로 끝납니다. 집거나 놓은 뒤에는 approach 높이로 올린 다음에만 좌우로 돌며, 반대편으로 갈 때는 `center_carry`를 거칩니다. 꺼져 있거나 빠진 자세가 있으면 `SEQUENCE_READY`에서 이유(`arm_blocked_reason`)를 표시하고 대기합니다. 전체 중지는 현재 자세와 집게를 유지합니다. 정지 후 바퀴 잠금을 유지합니다. 로봇에서 `python3 scripts/check_transfer.py`를 실행하면 하드웨어를 움직이지 않고 빠진 자세와 네 시작 위치별 운반 단계·각도를 보여줍니다.
+새 미션은 `ARM_RESET`에서 팔 4개 관절을 서버 시작 자세(기본 모두 90°)로 복원한 뒤 출발 QR을 기다립니다. 정지 후 `ARM_WAIT`에서 기본 1초를 기다리고 `QR_TURNING`에서 BASE를 돌리고, PICK·PLACE QR 두 개가 카메라에 들어오도록 팔꿈치를 30° 내립니다(`qr_prepare_elbow_offset_deg`). 어깨·집게는 유지하며, `SIDE_QR_WAIT`에서 PICK과 PLACE QR의 좌우 순서를 비교합니다. RIGHT를 볼 때 화면 왼쪽이 A, LEFT를 볼 때 화면 오른쪽이 A입니다. 같은 결과가 3프레임 연속 확인되면 `SEQUENCE_READY`에서 LEFT-A·LEFT-B·RIGHT-A·RIGHT-B 중 시작할 자리와 전체 운반 순서를 확정합니다. 이후 QR이 가려져도 바뀌지 않습니다. `arm_enabled=true`이고 `/poses`의 네 자리 approach·pick·place와 공통 집게 열기·닫기·`center_carry`가 모두 저장돼 있으면 `ARM_TRANSFER`에서 확정한 순서대로 두 물체를 옮기고 `COMPLETE`로 끝납니다. 집거나 놓은 뒤에는 approach 높이로 올린 다음에만 좌우로 돌며, 반대편으로 갈 때는 `center_carry`를 거칩니다. 꺼져 있거나 빠진 자세가 있으면 `SEQUENCE_READY`에서 이유(`arm_blocked_reason`)를 표시하고 대기합니다. 전체 중지는 현재 자세와 집게를 유지합니다. 정지 후 바퀴 잠금을 유지합니다. 로봇에서 `python3 scripts/check_transfer.py`를 실행하면 하드웨어를 움직이지 않고 빠진 자세와 네 시작 위치별 운반 단계·각도를 보여줍니다.
 
 ## 모듈 연결
 
@@ -133,6 +133,7 @@ sudo python3 Server/WebServer.py
 | `arm_start_delay_seconds` | 1.0 | 바퀴 잠금 후 BASE 회전 전 대기, 임시값 |
 | `qr_prepare_left_base_deg` | 180.0 | LEFT QR 후 BASE 절대 목표각(중앙 90°에서 왼쪽 90°) |
 | `qr_prepare_right_base_deg` | 0.0 | RIGHT QR 후 BASE 절대 목표각(중앙 90°에서 오른쪽 90°) |
+| `qr_prepare_elbow_offset_deg` | -30.0 | QR 볼 때 팔꿈치를 초기 자세에서 움직일 각도. 음수면 내림(웹 hand down 방향), 0이면 BASE만 회전 |
 | `side_qr_settle_seconds` | 0.3 | BASE 회전 완료 뒤 이 시간 이후 프레임부터 자리 판별 |
 | `layout_frames` | 3 | 같은 자리 판별이 연속 몇 프레임 나와야 시퀀스를 선택할지 |
 | `layout_min_gap` | 0.05 | 현재 옆면 판별은 QR 두 중심의 가로 간격(화면 너비 비율) |

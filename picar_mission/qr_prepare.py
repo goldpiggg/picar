@@ -1,11 +1,15 @@
-"""Rotate BASE toward the start QR's side, then wait without a transfer plan."""
+"""Rotate BASE toward the start QR's side and tilt the elbow, then wait without a transfer plan."""
 from .arm_sequence import PoseMove, number
 
 
 class QrPreparation:
-    def __init__(self, driver, profile, targets, speed):
+    def __init__(self, driver, profile, targets, speed, elbow_offset=0.):
         self.driver, self.profile, self.speed = driver, profile, speed
         self.base_targets = dict(targets)
+        # Relative to the elbow at start, so the camera tilts the same amount
+        # whatever reset pose the arm is in.
+        self.elbow_offset = elbow_offset
+        self.elbow_target = None
         self.state = 'IDLE'
         self.move = None
         self.direction = None
@@ -19,7 +23,13 @@ class QrPreparation:
         low, high = self.profile.limits['base']
         if not number(target) or not low <= target <= high:
             raise ValueError('QR_BASE_TARGET_OUT_OF_LIMITS: '+direction)
-        return {'base': target}
+        if not self.elbow_offset:
+            return {'base': target}
+        elbow = self.driver.read_angles()['elbow']+self.elbow_offset
+        low, high = self.profile.limits['elbow']
+        if not number(elbow) or not low <= elbow <= high:
+            raise ValueError('QR_ELBOW_TARGET_OUT_OF_LIMITS: %g' % elbow)
+        return {'base': target, 'elbow': elbow}
 
     def start(self, direction, now):
         if self.state != 'IDLE':
@@ -27,6 +37,7 @@ class QrPreparation:
         targets = self.targets(direction)
         self.driver.hold()
         self.direction, self.target = direction, targets['base']
+        self.elbow_target = targets.get('elbow')
         speed = self.speed() if callable(self.speed) else self.speed
         self.move = PoseMove(self.driver, targets, speed, clock=lambda: now)
         self.started_at = now
@@ -45,7 +56,8 @@ class QrPreparation:
             self.state = 'CANCELLED'
 
     def snapshot(self):
-        return dict(state=self.state, direction=self.direction, base_target_deg=self.target)
+        return dict(state=self.state, direction=self.direction, base_target_deg=self.target,
+                    elbow_target_deg=self.elbow_target)
 
 
 class ArmReset(QrPreparation):

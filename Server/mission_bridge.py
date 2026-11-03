@@ -115,7 +115,8 @@ def _make_controller():
     profile = _load_motion_profile()
     preparation = QrPreparation(ArmAdapter(_servo),profile,
         {'LEFT': config.qr_prepare_left_base_deg, 'RIGHT': config.qr_prepare_right_base_deg},
-        speed=lambda:min(arm_jog_speed(),profile.move_speed(True)))
+        speed=lambda:min(arm_jog_speed(),profile.move_speed(True)),
+        elbow_offset=config.qr_prepare_elbow_offset_deg)
     initial = getattr(_servo,'initPos',[90.]*8)
     reset = ArmReset(ArmAdapter(_servo),profile,
         {joint:float(initial[channel]) for joint,channel in ArmAdapter.channels.items()},

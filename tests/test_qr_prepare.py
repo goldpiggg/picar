@@ -15,6 +15,30 @@ from test_arm import FakeArm
 from test_dashboard import load_bridge
 
 
+class ElbowTiltTests(unittest.TestCase):
+    def test_elbow_moves_with_base_and_shoulder_and_gripper_stay(self):
+        driver=FakeArm()
+        driver.angles.update(shoulder=81.,elbow=103.,gripper=145.)
+        preparation=QrPreparation(driver,load_profile(),{'LEFT':180.,'RIGHT':0.},20.,elbow_offset=-30.)
+        preparation.start('LEFT',0.)
+        for t in range(1,200):
+            if preparation.tick(t*.1)=='READY': break
+        self.assertEqual(preparation.state,'READY')
+        self.assertEqual(driver.angles,dict(base=180.,shoulder=81.,elbow=73.,gripper=145.))
+        self.assertEqual({joint for joint,angle in driver.writes},{'base','elbow'})
+
+    def test_elbow_target_outside_limits_never_moves(self):
+        driver=FakeArm()
+        driver.angles['elbow']=10.
+        preparation=QrPreparation(driver,load_profile(),{'LEFT':180.,'RIGHT':0.},20.,elbow_offset=-30.)
+        with self.assertRaisesRegex(ValueError,'QR_ELBOW_TARGET_OUT_OF_LIMITS'):
+            preparation.start('LEFT',0.)
+        self.assertEqual(driver.writes,[])
+
+    def test_shipped_tilt_lowers_the_elbow_thirty_degrees(self):
+        self.assertEqual(load_config().qr_prepare_elbow_offset_deg,-30.)
+
+
 class PreparationSettingsTests(unittest.TestCase):
     def test_defaults_are_ninety_degrees_either_side_of_center(self):
         cfg=load_config()
@@ -115,8 +139,10 @@ class ProductionPreparationTests(unittest.TestCase):
         self.assertFalse(status['dashboard']['finished'])
         self.assertEqual(status['dashboard']['remaining_cm'],0.)
         self.assertEqual(status['dashboard']['distance_source'],'FINAL')
-        self.assertEqual(servo.nowPos[1:5],[0.,81.,103.,145.])  # RIGHT turns BASE down to 0.
-        self.assertEqual({channel for channel,angle in writes},{1})
+        # RIGHT turns BASE down to 0 and lowers the elbow 30 degrees to see both codes.
+        self.assertEqual(servo.nowPos[1:5],[0.,81.,73.,145.])
+        self.assertEqual({channel for channel,angle in writes},{1,3})
+        self.assertEqual(status['qr_preparation']['elbow_target_deg'],73.)
         self.assertIsNone(controller.arm)
         self.assertTrue(all(command[0]=='stop' for command in wheels[last_wheel:]))
         self.assertEqual(bridge.runtime.snapshot()['state'],'WAIT_SIDE_QR')
