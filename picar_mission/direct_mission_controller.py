@@ -23,13 +23,16 @@ REFERENCE_VOLTS = 7.     # Must match Server/Move.py REFERENCE_VOLTS.
 class DirectMissionController(MissionController):
     def __init__(self, *args, read_heading=None, read_battery=None, qr_preparation=None,
                  arm_reset=None, on_reset_complete=None, request_side_qr=None,
-                 transfer_blocked_reason=None, settle_side_qr=None, **kwargs):
+                 transfer_blocked_reason=None, settle_side_qr=None, view_scan_enabled=False, **kwargs):
         kwargs['_precision'] = False
         super().__init__(*args, **kwargs)
         # Why arm_sequence is None, e.g. untaught positions; shown on selection.
         self.transfer_blocked_reason = transfer_blocked_reason
         # Tells the QR worker the turn has finished (one code may then do).
         self.settle_side_qr = settle_side_qr
+        self.view_scan_enabled = view_scan_enabled
+        self.view_scan_started = None
+        self.view_scan_next = None
         self.read_heading = read_heading
         self.read_battery = read_battery
         self.qr_preparation = qr_preparation
@@ -140,12 +143,17 @@ class DirectMissionController(MissionController):
                     raise RuntimeError('SIDE_QR_SCAN_NOT_STARTED')
                 self.data['arm_motion_enabled'] = True
                 self._state('QR_TURNING',now)
-        elif self.data['state']=='QR_TURNING':
+        elif self.data['state'] in ('QR_TURNING','QR_SCAN_MOVING'):
+            if self.view_scan_started is not None and now-self.view_scan_started >= self.cfg.qr_scan_timeout_seconds:
+                raise RuntimeError('QR_VIEW_NOT_FOUND: QR 시야 확보 실패')
             if self.request_side_qr is not None and self._transfer_blocked_reason() is None                     and self._side_selection() is not None:
                 # Recognised mid-turn: stop turning where the arm is and go.
                 self.qr_preparation.interrupt()
                 self._start_transfer(self._side_selection(),now)
             elif self.qr_preparation.tick(now)=='READY':
+                if self.view_scan_started is None:
+                    self.view_scan_started = now
+                self.view_scan_next = now+(.55 if self.data['state']=='QR_TURNING' else .30)
                 self._stop()
                 self.data.update(arm_motion_enabled=False,automatic_motion_enabled=False,
                                  qr_view_ready=True,pending_stages=['pick_place_qr','arm_transfer'])
@@ -162,6 +170,16 @@ class DirectMissionController(MissionController):
                     self._state('SEQUENCE_READY',now)
                     return
                 self._start_transfer(position,now)
+            elif self.view_scan_enabled:
+                if now-self.view_scan_started >= self.cfg.qr_scan_timeout_seconds:
+                    raise RuntimeError('QR_VIEW_NOT_FOUND: QR 시야 확보 실패')
+                if now >= self.view_scan_next and self.qr_preparation.next_scan_target() is not None:
+                    # A decoded result may arrive during this check. Never erase
+                    # a confirmed selection to move the camera again.
+                    if self.request_side_qr(self.data['first_direction'],now):
+                        self.qr_preparation.scan(now)
+                        self.data.update(arm_motion_enabled=True,automatic_motion_enabled=True)
+                        self._state('QR_SCAN_MOVING',now)
         elif self.data['state']=='ARM_TRANSFER':
             if self.arm.tick(now)=='COMPLETE':
                 self.data.update(arm_motion_enabled=False,automatic_motion_enabled=False,pending_stages=[])

@@ -2,6 +2,18 @@
 from .arm_sequence import PoseMove, number
 
 
+def side_view_targets(positions, limits, fallback):
+    targets = dict(fallback)
+    if positions is not None:
+        for side in ('LEFT','RIGHT'):
+            records = [positions['positions'][side+'-'+row]['approach'] for row in ('A','B')]
+            if all(record is not None for record in records):
+                target = sum(record['angles_deg']['base'] for record in records)/2.
+                if number(target) and limits['base'][0] <= target <= limits['base'][1]:
+                    targets[side] = target
+    return targets
+
+
 class QrPreparation:
     def __init__(self, driver, profile, targets, speed, elbow_offset=0.):
         self.driver, self.profile, self.speed = driver, profile, speed
@@ -15,6 +27,7 @@ class QrPreparation:
         self.direction = None
         self.target = None
         self.started_at = None
+        self.scan_targets = []
 
     def targets(self, direction):
         if direction not in ('LEFT', 'RIGHT'):
@@ -42,6 +55,21 @@ class QrPreparation:
         self.move = PoseMove(self.driver, targets, speed, clock=lambda: now)
         self.started_at = now
         self.state = 'MOVING'
+        low, high = self.profile.limits['base']
+        self.scan_targets = list(dict.fromkeys(max(low,min(high,self.target+offset)) for offset in (-10.,10.)))
+        self.scan_targets = [value for value in self.scan_targets if value != self.target]
+
+    def next_scan_target(self):
+        return self.scan_targets[0] if self.scan_targets else None
+
+    def scan(self, now):
+        if self.state != 'READY' or not self.scan_targets:
+            raise RuntimeError('QR_SCAN_NOT_READY')
+        self.target = self.scan_targets.pop(0)
+        speed = self.speed() if callable(self.speed) else self.speed
+        # Change yaw only: do not apply the elbow offset again on each scan.
+        self.move = PoseMove(self.driver, {'base':self.target}, speed, clock=lambda:now)
+        self.started_at, self.state = now, 'MOVING'
 
     def tick(self, now):
         if self.state == 'MOVING' and now-self.started_at > self.move.motion.duration+15.:

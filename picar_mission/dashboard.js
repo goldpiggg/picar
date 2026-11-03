@@ -16,8 +16,9 @@
     PULSING: ['정밀 접근','조금씩 움직여 정지선에 맞추고 있어요.','짧은 전진·후진 펄스로 목표 거리까지 조절합니다.'],
     ARM_WAIT: ['QR 확인 준비','정지 완료. 팔 회전을 준비해요.','바퀴를 잠근 상태로 안정 대기한 뒤 QR 방향으로 BASE를 돌리고 팔꿈치를 내립니다.'],
     QR_TURNING: ['팔 회전 중','돌면서 PICK·PLACE QR을 찾고 있어요.','BASE를 돌리고 팔꿈치를 내리는 동안 QR 두 개가 보이면 바로 시퀀스를 정하고 운반을 시작합니다.'],
+    QR_SCAN_MOVING: ['QR 시야 조정','두 QR이 보이는 각도를 짧게 찾고 있어요.','인식되면 즉시 운반합니다. 시야를 확보하지 못하면 정지합니다.'],
     QR_VIEW_READY: ['QR 확인 준비 완료','팔 방향을 맞췄어요. 다음 단계를 기다립니다.','PICK·PLACE QR을 볼 준비가 됐습니다. 자동 집기·놓기는 시작하지 않습니다.'],
-    SIDE_QR_WAIT: ['PICK·PLACE 인식 중','어느 자리에서 시작할지 확인하고 있어요.','PICK이나 PLACE QR 중 하나라도 화면 한쪽에 또렷이 보이면 시퀀스를 선택합니다.'],
+    SIDE_QR_WAIT: ['PICK·PLACE 인식 중','두 QR의 좌우 순서를 확인하고 있어요.','두 QR을 읽거나, 한 QR을 읽고 다른 QR의 외곽 위치를 찾으면 바로 운반합니다.'],
     SEQUENCE_READY: ['시퀀스 선택 완료','실행할 시퀀스를 선택했어요.','자동 운반이 꺼져 있거나 저장하지 않은 자세가 있어 팔과 바퀴는 대기합니다.'],
     LAYOUT_WAIT: ['배치 확인 중','물체가 어느 대각선에 있는지 보고 있어요.','PICK/PLACE QR로 배치를 확정한 뒤 팔을 움직입니다. 확정하지 못하면 팔을 움직이지 않습니다.'],
     ARM_TRANSFER: ['물체 운반 중','저장한 자세로 물체를 옮기고 있어요.','차체를 정지한 채 확정한 순서대로 두 물체를 운반합니다. 전체 중지는 현재 자세와 집게를 유지합니다.'],
@@ -166,7 +167,7 @@
     if (data.target_stop_latched) { done = 2; active = 3; }
     if ((data.arm?.completed_transfers || 0) >= 1) { done = 3; active = 4; }
     if (complete) { done = 5; active = 0; }
-    const preparing = ['ARM_WAIT','QR_TURNING','QR_VIEW_READY','SIDE_QR_WAIT','SEQUENCE_READY'].includes(state);
+    const preparing = ['ARM_WAIT','QR_TURNING','QR_SCAN_MOVING','QR_VIEW_READY','SIDE_QR_WAIT','SEQUENCE_READY'].includes(state);
     const blocked = state === 'STOPPED_WAIT' || preparing;
     const failed = state === 'ERROR' || state === 'CANCELLED';
     document.querySelectorAll('[data-stage]').forEach(item => {

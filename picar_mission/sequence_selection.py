@@ -19,8 +19,6 @@ def sequence_for(start_position):
             (other+'-'+diagonal,'PICK'), (side+'-'+diagonal,'PLACE'))])
 
 
-# A lone code must sit at least this far from the image center to count.
-SINGLE_CODE_MARGIN = .15
 # Codes (or located boxes) closer than this horizontally are the same code.
 SAME_CODE_GAP = .08
 
@@ -34,8 +32,8 @@ def classify_side_start(detections, direction, min_gap=.05, settled=False):
     finished (`settled`), a crumpled sheet often hides one code from the
     decoder. Then the one decoded code is compared with the other code's
     box, located but not decoded (`undecoded`), when exactly one such box
-    is in view; failing that, one code clearly off the image center decides
-    as the two spots straddle the center.
+    is in view. Without that neighbour, a lone code cannot identify A/B
+    because the camera may be aimed off center.
     """
     if direction not in ('LEFT', 'RIGHT'):
         return None
@@ -71,10 +69,8 @@ def classify_side_start(detections, direction, min_gap=.05, settled=False):
         if len(others) == 1:
             # The located box is the other code of this side.
             pick_right = (x > others[0]) == (label == 'PICK')
-        elif abs(x-.5) < SINGLE_CODE_MARGIN:
-            return None
         else:
-            pick_right = (x > .5) == (label == 'PICK')
+            return None  # Image center is not a physical A/B reference.
     else:
         return None
     row = 'A' if pick_right == (direction == 'LEFT') else 'B'
