@@ -39,31 +39,42 @@ class PoseTests(unittest.TestCase):
         self.assertFalse(load_profile().calibrated)
         self.assertFalse(MissionConfig().arm_enabled)
 
-    def test_left_and_right_plan_have_two_opposite_transfers(self):
-        for direction,first,other in [('LEFT','left','right'),('RIGHT','right','left')]:
-            with self.subTest(direction=direction):
-                plan=load_profile().plan(direction)
-                self.assertEqual([s['pose'] for s in plan if s['action']=='grasp'],[first+'_pick',other+'_pick'])
-                self.assertEqual([s['pose'] for s in plan if s['action']=='release'],[other+'_place',first+'_place'])
+    def test_objects_cross_to_the_empty_box_in_their_own_row(self):
+        # (direction, layout): [(first source, destination), (second source, destination)]
+        cases={('LEFT','LEFT_TOP'):[('left_top','right_top'),('right_bottom','left_bottom')],
+               ('RIGHT','LEFT_TOP'):[('right_bottom','left_bottom'),('left_top','right_top')],
+               ('LEFT','LEFT_BOTTOM'):[('left_bottom','right_bottom'),('right_top','left_top')],
+               ('RIGHT','LEFT_BOTTOM'):[('right_top','left_top'),('left_bottom','right_bottom')]}
+        for (direction,layout),[(a,b),(c,d)] in cases.items():
+            with self.subTest(direction=direction,layout=layout):
+                plan=load_profile().plan(direction,layout)
+                self.assertEqual([s['pose'] for s in plan if s['action']=='grasp'],[a+'_down',c+'_down'])
+                self.assertEqual([s['pose'] for s in plan if s['action']=='release'],[b+'_down',d+'_down'])
                 self.assertEqual([(s['pose'],s['gripper']) for s in plan],[
-                    ('center_clear',None),(first+'_pick_above',None),(first+'_pick_above','open'),
-                    (first+'_pick','open'),(first+'_pick','closed'),(first+'_pick_above','closed'),
-                    ('center_carry','closed'),(other+'_place_above','closed'),(other+'_place','closed'),
-                    (other+'_place','open'),(other+'_place_above','open'),
-                    (other+'_pick_above','open'),(other+'_pick','open'),(other+'_pick','closed'),
-                    (other+'_pick_above','closed'),('center_carry','closed'),
-                    (first+'_place_above','closed'),(first+'_place','closed'),(first+'_place','open')])
+                    ('center_clear',None),(a+'_above',None),(a+'_above','open'),
+                    (a+'_down','open'),(a+'_down','closed'),(a+'_above','closed'),
+                    ('center_carry','closed'),(b+'_above','closed'),(b+'_down','closed'),
+                    (b+'_down','open'),(b+'_above','open'),
+                    (c+'_above','open'),(c+'_down','open'),(c+'_down','closed'),
+                    (c+'_above','closed'),('center_carry','closed'),
+                    (d+'_above','closed'),(d+'_down','closed'),(d+'_down','open')])
+
+    def test_old_pick_place_profile_is_rejected_with_a_reteach_hint(self):
+        data=copy.deepcopy(load_profile().values)
+        data['positions']['left_pick']=data['positions'].pop('left_top_down')
+        with self.assertRaisesRegex(ValueError,'reteach'): ArmProfile(data)
 
     def test_invalid_angle_nan_and_steering_pose_are_rejected(self):
         for mutation in ['range','nan','steering']:
             data=copy.deepcopy(load_profile().values)
-            if mutation=='range': data['positions']['left_pick']['base']=190
+            if mutation=='range': data['positions']['left_top_down']['base']=190
             if mutation=='nan': data['gripper_deg']['closed']=float('nan')
-            if mutation=='steering': data['positions']['left_pick']['steering']=90
+            if mutation=='steering': data['positions']['left_top_down']['steering']=90
             with self.subTest(mutation=mutation),self.assertRaises(ValueError): ArmProfile(data)
 
-    def test_bad_direction_cannot_generate_plan(self):
-        with self.assertRaises(ValueError): load_profile().plan('PICK')
+    def test_bad_direction_or_layout_cannot_generate_plan(self):
+        with self.assertRaises(ValueError): load_profile().plan('PICK','LEFT_TOP')
+        with self.assertRaises(ValueError): load_profile().plan('LEFT','TOP')
 
     def test_official_adapter_uses_absolute_arm_channels_and_readback(self):
         bridge=test_approach.OfficialConnectionTests().load_bridge()
@@ -241,10 +252,10 @@ class SavePoseTests(unittest.TestCase):
 
     def test_pose_and_gripper_slots_are_written_without_confirming_calibration(self):
         angles=dict(base=61.04,shoulder=98.,elbow=112.5,gripper=74.)
-        self.assertEqual(save_pose('left_pick',angles,self.path),dict(base=61.,shoulder=98.,elbow=112.5))
+        self.assertEqual(save_pose('left_top_down',angles,self.path),dict(base=61.,shoulder=98.,elbow=112.5))
         self.assertEqual(save_pose('gripper_closed',angles,self.path),dict(gripper=74.))
         profile=load_profile(self.path)
-        self.assertEqual(profile.positions['left_pick'],dict(base=61.,shoulder=98.,elbow=112.5))
+        self.assertEqual(profile.positions['left_top_down'],dict(base=61.,shoulder=98.,elbow=112.5))
         self.assertEqual(profile.gripper['closed'],74.)
         self.assertFalse(profile.calibrated)
 
@@ -253,33 +264,33 @@ class SavePoseTests(unittest.TestCase):
         from unittest.mock import patch
         st=self.path.stat();calls=[]
         with patch.object(os,'chown',lambda p,uid,gid:calls.append((Path(p).name,uid,gid)),create=True):
-            save_pose('left_pick',dict(base=60,shoulder=90,elbow=90,gripper=90),self.path)
+            save_pose('left_top_down',dict(base=60,shoulder=90,elbow=90,gripper=90),self.path)
         self.assertEqual(calls,[('arm_poses.json.tmp',st.st_uid,st.st_gid)])
 
     def test_unknown_name_and_out_of_limit_angles_leave_file_unchanged(self):
         before=self.path.read_text(encoding='utf-8')
         for name,angles in [('steering',dict(base=90,shoulder=90,elbow=90,gripper=90)),
-                            ('left_pick',dict(base=190,shoulder=90,elbow=90,gripper=90))]:
+                            ('left_top_down',dict(base=190,shoulder=90,elbow=90,gripper=90))]:
             with self.subTest(name=name),self.assertRaises(ValueError): save_pose(name,angles,self.path)
         self.assertEqual(self.path.read_text(encoding='utf-8'),before)
 
     def test_bridge_refuses_to_save_in_automatic_mode(self):
         bridge=test_approach.OfficialConnectionTests().load_bridge()
         bridge.config=replace(bridge.config,auto_approach_enabled=True)
-        with self.assertRaises(ValueError): bridge.save_pose('left_pick')
+        with self.assertRaises(ValueError): bridge.save_pose('left_top_down')
 
 
 class PoseRecallTests(unittest.TestCase):
     def test_arm_pose_moves_smoothly_and_leaves_gripper(self):
         arm=FakeArm();arm.angles['gripper']=70.
-        targets=pose_targets(load_profile(),'left_pick')
+        targets=pose_targets(load_profile(),'left_top_down')
         self.assertEqual(set(targets),{'base','shoulder','elbow'})
         t=[0.];move=PoseMove(arm,targets,10,clock=lambda:t[0])
         path=[arm.read_angles()]
         for _ in range(400):
             t[0]+=.02;done=move.tick();path.append(arm.read_angles())
             if done: break
-        self.assertEqual(path[-1],dict(base=55.,shoulder=105.,elbow=115.,gripper=70.))
+        self.assertEqual(path[-1],dict(base=60.,shoulder=105.,elbow=115.,gripper=70.))
         self.assertFalse(any(joint=='gripper' for joint,_ in arm.writes))
         steps=[max(abs(b[j]-a[j]) for j in JOINTS) for a,b in zip(path,path[1:])]
         self.assertLessEqual(max(steps),10*.02+1e-9)  # Never faster than the speed.
@@ -330,10 +341,10 @@ class PoseRecallTests(unittest.TestCase):
         bridge._pose_move['thread'].join(3)
         self.assertEqual(bridge.pose_move_status()['state'],'DONE')
         self.assertEqual(servo.nowPos[1:4],[90,80,100])
-        bridge.move_to_pose('left_pick');time.sleep(.1)
+        bridge.move_to_pose('left_top_down');time.sleep(.1)
         self.assertTrue(bridge.allow_command('armup'))
         self.assertEqual(bridge.pose_move_status()['state'],'STOPPED')
-        self.assertNotEqual(servo.nowPos[1],55)
+        self.assertNotEqual(servo.nowPos[1],60)
 
 
 class RehearsalTests(unittest.TestCase):
@@ -348,25 +359,26 @@ class RehearsalTests(unittest.TestCase):
         fast=lambda driver,profile:ArmSequence(driver,profile,clock=clock)
         with patch.object(bridge,'ArmSequence',fast),patch.object(bridge.time,'sleep',lambda s:None):
             self.assertFalse(load_profile().calibrated)
-            info=bridge.rehearse('LEFT')
+            info=bridge.rehearse('LEFT','LEFT_TOP')
             self.assertEqual(info['step_count'],19)
             bridge._pose_move['thread'].join(10)
         status=bridge.pose_move_status()
-        self.assertEqual((status['state'],status['action'],status['pose']),('DONE','release','left_place'))
+        self.assertEqual((status['state'],status['action'],status['pose']),('DONE','release','left_bottom_down'))
         profile=load_profile()
-        self.assertEqual(servo.nowPos[1:5],[*profile.positions['left_place'].values(),profile.gripper['open']])
+        self.assertEqual(servo.nowPos[1:5],[*profile.positions['left_bottom_down'].values(),profile.gripper['open']])
         self.assertEqual(servo.nowPos[0],90.)  # Steering channel untouched.
 
     def test_rehearsal_refused_in_auto_and_for_bad_side(self):
         bridge,_=self.bridge(auto=True)
-        with self.assertRaises(ValueError): bridge.rehearse('RIGHT')
+        with self.assertRaises(ValueError): bridge.rehearse('RIGHT','LEFT_TOP')
         bridge,_=self.bridge()
-        with self.assertRaises(ValueError): bridge.rehearse('PICK')
+        with self.assertRaises(ValueError): bridge.rehearse('PICK','LEFT_TOP')
+        with self.assertRaises(ValueError): bridge.rehearse('RIGHT','TOP')
 
     def test_manual_button_stops_rehearsal_and_holds_pose(self):
         import time
         bridge,servo=self.bridge()
-        bridge.rehearse('RIGHT');time.sleep(.15)
+        bridge.rehearse('RIGHT','LEFT_BOTTOM');time.sleep(.15)
         self.assertTrue(bridge.allow_command('grab'))
         self.assertEqual(bridge.pose_move_status()['state'],'STOPPED')
         held=list(servo.nowPos);time.sleep(.1)
@@ -390,13 +402,13 @@ class RehearsalTests(unittest.TestCase):
 class SequenceTests(unittest.TestCase):
     def test_uncalibrated_start_never_reads_or_writes_driver(self):
         driver=FakeArm();s=ArmSequence(driver,load_profile())
-        with self.assertRaisesRegex(RuntimeError,'CALIBRATION_REQUIRED'): s.start('LEFT',0.)
+        with self.assertRaisesRegex(RuntimeError,'CALIBRATION_REQUIRED'): s.start('LEFT','LEFT_TOP',0.)
         self.assertEqual(driver.writes,[])
         self.assertEqual(driver.holds,0)
 
     def test_full_sequence_preserves_grip_during_carry(self):
-        for direction in ['LEFT','RIGHT']:
-            driver=FakeArm();s=ArmSequence(driver,calibrated_profile());s.start(direction,0.)
+        for direction,last in [('LEFT','left_bottom_down'),('RIGHT','right_top_down')]:
+            driver=FakeArm();s=ArmSequence(driver,calibrated_profile());s.start(direction,'LEFT_TOP',0.)
             for tick in range(1,4000):
                 s.tick(tick*.05)
                 if s.state=='COMPLETE': break
@@ -407,29 +419,29 @@ class SequenceTests(unittest.TestCase):
             self.assertFalse(any(step['gripper']!='closed' for step in s.steps if step['action'] in ('lift','carry_center','approach_place','lower_place')))
             # Ends where the second object was released, gripper open.
             self.assertEqual({j:driver.angles[j] for j in JOINTS[:3]},
-                             s.profile.positions[direction.lower()+'_place'])
+                             s.profile.positions[last])
 
     def test_first_moves_keep_the_gripper_until_above_the_object(self):
         driver=FakeArm();driver.angles['gripper']=80.
-        s=ArmSequence(driver,calibrated_profile());s.start('RIGHT',0.)
+        s=ArmSequence(driver,calibrated_profile());s.start('RIGHT','LEFT_TOP',0.)
         tick=0
         while s.index<2:
             tick+=1;s.tick(tick*.05)
         self.assertFalse(any(joint=='gripper' for joint,_ in driver.writes))
-        self.assertEqual(driver.angles['base'],125)  # Arrived above the right object.
+        self.assertEqual(driver.angles['base'],135)  # Arrived above the right (bottom) object.
         while s.index<3:
             tick+=1;s.tick(tick*.05)
         self.assertEqual(driver.angles['gripper'],110)  # Then opened there.
 
     def test_rate_limit_and_stalled_tick_do_not_jump(self):
-        driver=FakeArm();s=ArmSequence(driver,calibrated_profile());s.start('LEFT',0.)
+        driver=FakeArm();s=ArmSequence(driver,calibrated_profile());s.start('LEFT','LEFT_TOP',0.)
         previous=driver.read_angles();s.tick(.05)
         self.assertLessEqual(max(abs(driver.angles[j]-previous[j]) for j in JOINTS),1.000001)
         previous=driver.read_angles();s.tick(2.)
         self.assertLessEqual(max(abs(driver.angles[j]-previous[j]) for j in JOINTS),2.000001)
 
     def test_cancel_holds_grip_and_does_not_home_or_release(self):
-        driver=FakeArm();s=ArmSequence(driver,calibrated_profile());s.start('LEFT',0.)
+        driver=FakeArm();s=ArmSequence(driver,calibrated_profile());s.start('LEFT','LEFT_TOP',0.)
         s.tick(.05);previous=dict(driver.angles);count=len(driver.writes)
         s.cancel();s.tick(1.)
         self.assertEqual(driver.angles,previous)
@@ -438,7 +450,7 @@ class SequenceTests(unittest.TestCase):
 
     def test_step_timeout_stops_sequence(self):
         data=copy.deepcopy(calibrated_profile().values);data['step_timeout_seconds']=1.
-        driver=FakeArm();s=ArmSequence(driver,ArmProfile(data));s.start('LEFT',0.)
+        driver=FakeArm();s=ArmSequence(driver,ArmProfile(data));s.start('LEFT','LEFT_TOP',0.)
         # First move: 20 deg at 20 deg/s on the eased path takes 1.875 s, so the
         # 1 s timeout counts from there.
         with self.assertRaisesRegex(RuntimeError,'STEP_TIMEOUT'): s.tick(3.)
@@ -446,7 +458,7 @@ class SequenceTests(unittest.TestCase):
         self.assertGreater(driver.holds,1)
 
     def test_carry_steps_use_slow_eased_speed(self):
-        driver=FakeArm();s=ArmSequence(driver,calibrated_profile());s.start('LEFT',0.)
+        driver=FakeArm();s=ArmSequence(driver,calibrated_profile());s.start('LEFT','LEFT_TOP',0.)
         fastest={True:0.,False:0.}
         for tick in range(1,20000):
             before=driver.read_angles();step=s.steps[s.index]
@@ -474,6 +486,7 @@ class HandoffTests(unittest.TestCase):
     def test_calibrated_arm_runs_only_after_stop_and_never_drives_again(self):
         for direction in ['LEFT','RIGHT']:
             h=Harness(direction,config=replace(MissionConfig(),arm_enabled=True))
+            h.qr['layout']='LEFT_BOTTOM'
             driver=FakeArm();arm=ArmSequence(driver,calibrated_profile(),clock=lambda:h.time)
             h.controller.arm=arm
             h.start()
@@ -486,12 +499,26 @@ class HandoffTests(unittest.TestCase):
                 if h.controller.snapshot()['state']=='COMPLETE': break
             self.assertEqual(h.controller.snapshot()['state'],'COMPLETE')
             self.assertEqual(h.controller.snapshot()['first_direction'],direction)
+            self.assertEqual(h.controller.snapshot()['layout'],'LEFT_BOTTOM')
             self.assertTrue(h.controller.snapshot()['drive_locked'])
             self.assertEqual(arm.completed_transfers,2)
             self.assertFalse(any(c[0]=='forward' for c in h.drive.commands[wheel_count:]))
 
+    def test_arm_never_moves_without_a_box_layout(self):
+        h=Harness(config=replace(MissionConfig(),arm_enabled=True))
+        requests=[];h.controller.request_layout=lambda:requests.append(h.time)
+        driver=FakeArm();h.controller.arm=ArmSequence(driver,calibrated_profile(),clock=lambda:h.time)
+        h.start();h.finish()
+        self.assertEqual(h.controller.snapshot()['state'],'LAYOUT_WAIT')
+        self.assertEqual(len(requests),1)
+        h.time+=h.controller.cfg.layout_timeout_seconds+.1;h.controller.step()
+        state=h.controller.snapshot()
+        self.assertEqual((state['state'],state['error']),('ERROR','LAYOUT_NOT_DETECTED'))
+        self.assertEqual(driver.writes,[])
+
     def test_cancel_during_arm_is_terminal(self):
         h=Harness(config=replace(MissionConfig(),arm_enabled=True))
+        h.qr['layout']='LEFT_TOP'
         driver=FakeArm();h.controller.arm=ArmSequence(driver,calibrated_profile())
         h.start();h.finish();h.controller.cancel();count=len(driver.writes)
         for _ in range(20): h.time+=.05;h.controller.step()

@@ -16,9 +16,15 @@ DEFAULT_CARRY_SPEED = 10.
 PEAK_SPEED_RATIO = 1.875  # ease() peaks at 1.875x its average speed.
 MAX_TICK_SECONDS = .1  # A stalled loop must not jump ahead on the path.
 MAX_SERVO_ANGLE = 189  # 500~2500us at the original degree scale (RPIservo.ARM_MAX_ANGLE).
-POSES = ('center_clear','center_carry','left_pick_above','left_pick',
-         'left_place_above','left_place','right_pick_above','right_pick',
-         'right_place_above','right_place')
+# Four boxes, two per side. "top" is the row that appears higher in the
+# camera image at the stop position. Each object sits at its box's top corner,
+# so one pose pair per box serves both picking from and placing into it.
+BOXES = ('left_top','left_bottom','right_top','right_bottom')
+POSES = ('center_clear','center_carry')+tuple(box+suffix for box in BOXES for suffix in ('_above','_down'))
+# The two objects always sit diagonally: the layout names the left object's row,
+# and the right object is in the other row.
+LAYOUTS = ('LEFT_TOP','LEFT_BOTTOM')
+LEGACY_POSES = frozenset({'left_pick','left_place','right_pick','right_place'})
 
 
 def number(value):
@@ -39,6 +45,8 @@ class ArmProfile:
             if not isinstance(limits,list) or len(limits)!=2 or not all(map(number,limits)) or not 0<=limits[0]<limits[1]<=MAX_SERVO_ANGLE:
                 raise ValueError('Invalid limits for '+name)
         self.positions = values['positions']
+        if LEGACY_POSES & set(self.positions):
+            raise ValueError('Arm poses use the old left_pick/right_place names; reteach the four box poses (left_top_above ...)')
         if set(self.positions)!=set(POSES):
             raise ValueError('Arm positions must contain the ten named calibration poses')
         self.gripper = values['gripper_deg']
@@ -77,35 +85,40 @@ class ArmProfile:
             if not number(value) or not self.limits[name][0]<=value<=self.limits[name][1]:
                 raise ValueError('Angle outside configured limit: %s %s (allowed %s~%s)'%(name,value,*self.limits[name]))
 
-    def plan(self, direction):
+    def plan(self, direction, layout):
         if direction not in ('LEFT','RIGHT'):
             raise ValueError('Direction must be LEFT or RIGHT')
+        if layout not in LAYOUTS:
+            raise ValueError('Layout must be LEFT_TOP or LEFT_BOTTOM')
         first = direction.lower()
         other = 'right' if first=='left' else 'left'
+        left_row = layout.split('_')[1].lower()
+        row = {'left':left_row,'right':'bottom' if left_row=='top' else 'top'}
         steps = []
         def add(pose, grip, action):
             # grip None leaves the gripper where the mission found it.
             steps.append(dict(action=action,pose=pose,gripper=grip,
                 angles_deg={**self.positions[pose],'gripper':None if grip is None else self.gripper[grip]},
                 settle_seconds=self.values['grip_settle_seconds'] if action in ('open_gripper','grasp','release') else self.values['settle_seconds']))
-        # The QR side's object first, dropped on the other side; then the other
-        # side's object, dropped on the QR side. The second pick follows the
-        # first drop directly, since both are on the same side.
+        # Each object crosses to the empty box on the other side in its own row.
+        # The QR side's object goes first; the second pick follows the first
+        # drop directly, since both boxes are on the same side.
+        transfers = [(side+'_'+row[side],to+'_'+row[side]) for side,to in ((first,other),(other,first))]
         add('center_clear',None,'prepare')
-        add(first+'_pick_above',None,'approach_pick')
-        add(first+'_pick_above','open','open_gripper')
-        for n,(source,destination) in enumerate(((first,other),(other,first))):
+        add(transfers[0][0]+'_above',None,'approach_pick')
+        add(transfers[0][0]+'_above','open','open_gripper')
+        for n,(source,destination) in enumerate(transfers):
             if n:
-                add(source+'_pick_above','open','approach_pick')
-            add(source+'_pick','open','lower_pick')
-            add(source+'_pick','closed','grasp')
-            add(source+'_pick_above','closed','lift')
+                add(source+'_above','open','approach_pick')
+            add(source+'_down','open','lower_pick')
+            add(source+'_down','closed','grasp')
+            add(source+'_above','closed','lift')
             add('center_carry','closed','carry_center')
-            add(destination+'_place_above','closed','approach_place')
-            add(destination+'_place','closed','lower_place')
-            add(destination+'_place','open','release')
+            add(destination+'_above','closed','approach_place')
+            add(destination+'_down','closed','lower_place')
+            add(destination+'_down','open','release')
             if not n:
-                add(destination+'_place_above','open','retreat')
+                add(destination+'_above','open','retreat')
         return steps
 
 
@@ -226,14 +239,14 @@ class ArmSequence:
         self.error=None
         self.completed_transfers=0
 
-    def start(self, direction, now=None, require_calibration=True):
+    def start(self, direction, layout, now=None, require_calibration=True):
         # Only the teach-mode rehearsal skips this: it exists to check the
         # taught poses before calibration_confirmed is set.
         if require_calibration and not self.profile.calibrated:
             raise RuntimeError('ARM_CALIBRATION_REQUIRED: packaged angles are provisional')
         if self.state!='IDLE':
             raise RuntimeError('Arm sequence cannot restart')
-        self.steps=self.profile.plan(direction)
+        self.steps=self.profile.plan(direction,layout)
         self.current=dict(self.driver.read_angles())
         self.profile.check_angles(self.current)
         self.holding=self.profile.holding(self.current['gripper'])
@@ -306,11 +319,14 @@ class ArmSequence:
 def main():
     parser=argparse.ArgumentParser(description='Print a provisional arm plan; never moves hardware')
     parser.add_argument('--plan',required=True,choices=['LEFT','RIGHT'])
+    parser.add_argument('--layout',required=True,choices=LAYOUTS,
+                        help='Row of the left object: LEFT_TOP or LEFT_BOTTOM')
     parser.add_argument('--poses',type=Path)
     args=parser.parse_args()
     profile=load_profile(args.poses)
     print(json.dumps(dict(calibration_confirmed=profile.calibrated,hardware_control=False,
-                         first_direction=args.plan,steps=profile.plan(args.plan)),ensure_ascii=False,indent=2))
+                         first_direction=args.plan,layout=args.layout,
+                         steps=profile.plan(args.plan,args.layout)),ensure_ascii=False,indent=2))
 
 
 if __name__=='__main__': main()

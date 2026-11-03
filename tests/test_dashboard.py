@@ -220,7 +220,7 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.client.get('/dashboard/assets/config.py').status_code,404)
 
     def test_four_position_page_keeps_legacy_teaching_page_available(self):
-        for url, marker in [('/poses','positions.js'),('/poses/legacy','left_pick_above')]:
+        for url, marker in [('/poses','positions.js'),('/poses/legacy','left_top_above')]:
             response = self.client.get(url)
             self.assertEqual(response.status_code,200)
             self.assertIn(marker,response.get_data(as_text=True))

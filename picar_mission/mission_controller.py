@@ -5,6 +5,7 @@ import threading
 import time
 from .approach import Approach
 from .distance import DistanceFilter, SensorFault
+from .arm_sequence import LAYOUTS
 from .qr_scan import emit
 
 
@@ -12,8 +13,12 @@ TERMINAL = frozenset({'STOPPED_WAIT','COMPLETE','ERROR','CANCELLED','DISABLED'})
 
 
 class MissionController:
-    def __init__(self, config, drive, read_sample, qr_snapshot, clock=time.monotonic, arm_sequence=None, _precision=True):
+    def __init__(self, config, drive, read_sample, qr_snapshot, clock=time.monotonic, arm_sequence=None,
+                 request_layout=None, _precision=True):
         self.cfg,self.drive,self.read_sample,self.qr_snapshot = config,drive,read_sample,qr_snapshot
+        # Asks the QR worker to read the box layout; None when the worker
+        # publishes it on its own (tests feed qr_snapshot directly).
+        self.request_layout = request_layout
         self.clock = clock
         self.arm = arm_sequence
         self.lock = threading.RLock()
@@ -29,7 +34,7 @@ class MissionController:
         self.stable_since = None
         self.state_at = clock()
         self.data = dict(state='WAIT_QR' if config.auto_approach_enabled else 'DISABLED',
-                         first_direction=None, target_distance_cm=config.target_distance_cm,
+                         first_direction=None, layout=None, target_distance_cm=config.target_distance_cm,
                          distance_offset_cm=config.distance_offset_cm, command_speed=0,
                          distance_cm=None, raw_distance_cm=None, error=None,
                          distance_wait_reason=None, distance_samples=0,
@@ -77,6 +82,28 @@ class MissionController:
                                  drive_locked=True,arm_motion_enabled=False)
                 self._state('ERROR',self.clock())
 
+    def _begin_layout(self, now):
+        # The arm does not move until the camera has told the layout apart.
+        if self.request_layout is not None:
+            self.request_layout()
+        self._state('LAYOUT_WAIT',now)
+
+    def _layout_step(self, now):
+        if self.data['command_speed']!=0:
+            raise RuntimeError('ARM_REQUIRES_STOPPED_DRIVE')
+        qr = self.qr_snapshot()
+        layout = qr.get('layout')
+        if layout in LAYOUTS:
+            self.data['layout'] = layout
+            self.arm.start(self.data['first_direction'],layout,now)
+            self.data.update(arm_motion_enabled=True,automatic_motion_enabled=True,
+                             arm_blocked_reason=None)
+            self._state('ARM_TRANSFER',now)
+        elif qr.get('state')=='ERROR':
+            raise SensorFault('QR_CAMERA_ERROR: '+str(qr.get('error')))
+        elif now-self.state_at > self.cfg.layout_timeout_seconds:
+            raise SensorFault('LAYOUT_NOT_DETECTED')
+
     def step(self, now=None):
         try:
             self._step(now)
@@ -94,6 +121,9 @@ class MissionController:
                 raise SensorFault('QR_CAMERA_ERROR: '+str(qr.get('error')))
             # Once the direction is latched, this fixed-pose mission navigates
             # by ultrasound. A video interruption must not cancel that motion.
+            if state=='LAYOUT_WAIT':
+                self._layout_step(now)
+                return
             if state=='ARM_TRANSFER':
                 # The head/sensor may rotate with the arm: do not use side
                 # echoes as monitor distance. All wheel commands remain locked.
@@ -184,10 +214,7 @@ class MissionController:
                     self._stop()
                     self.data.update(approach_complete=True, automatic_motion_enabled=False,drive_locked=True)
                     if self.cfg.arm_enabled and self.arm is not None and self.arm.profile.calibrated:
-                        self.arm.start(self.data['first_direction'],now)
-                        self.data.update(arm_motion_enabled=True,automatic_motion_enabled=True,
-                                         arm_blocked_reason=None)
-                        self._state('ARM_TRANSFER',now)
+                        self._begin_layout(now)
                     else:
                         self.data['arm_blocked_reason'] = 'DISABLED' if not self.cfg.arm_enabled else 'CALIBRATION_REQUIRED'
                         self._state('STOPPED_WAIT',now)

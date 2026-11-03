@@ -25,7 +25,7 @@
 
 ```text
 WAIT_QR → STEER_PRELOAD(0.2초) → STEER_SETTLE(0.3초) → DRIVING ─38cm 이하─▶ PULSE_SETTLE ⇄ PULSING
-                                                                              └─ 30±1cm ─▶ STOPPED_WAIT 또는 ARM_WAIT
+                                                                              └─ 30±1cm ─▶ STOPPED_WAIT 또는 ARM_WAIT → LAYOUT_WAIT → ARM_TRANSFER
 ```
 
 - 같은 QR의 연속 프레임이나 추가 확인 시간을 요구하지 않습니다. LEFT/RIGHT 동시 인식, 같은 출발 QR 여러 개, PICK/PLACE만 보이는 경우에는 출발하지 않습니다.
@@ -45,7 +45,7 @@ WAIT_QR → STEER_PRELOAD(0.2초) → STEER_SETTLE(0.3초) → DRIVING ─38cm �
 
 `approach_complete=true`는 차가 멈춘 상태에서 잰 중앙값이 30 ±1cm였다는 뜻입니다. 이때 `target_stop_latched=true`, `final_distance_cm`에 그 거리가 기록되고, 이후 바퀴 전진·후진·조향 명령을 잠급니다. 새 QR이나 거리값으로 잠금을 풀거나 다시 출발하지 않습니다.
 
-팔을 명시적으로 활성화하고 자세 보정까지 확인한 경우에는 `ARM_WAIT`에서 기본 1초를 기다린 뒤 `ARM_TRANSFER`로 넘어갑니다. 팔이 초음파를 가릴 수 있으므로 정지선 고정 후에는 초음파를 다시 읽지 않습니다. 팔 동작 중과 완료 뒤에도 바퀴 잠금은 유지합니다. 대기 시간 1초는 임시값이며 실제 정착 시간에 맞춰 조정합니다.
+팔을 명시적으로 활성화하고 자세 보정까지 확인한 경우에는 `ARM_WAIT`에서 기본 1초를 기다린 뒤 `LAYOUT_WAIT`에서 카메라로 박스 배치를 판단하고, 확정되면 `ARM_TRANSFER`로 넘어갑니다. `layout_timeout_seconds`(5초) 안에 판단하지 못하거나 카메라 오류가 나면 팔을 움직이지 않고 `ERROR`로 끝납니다. 팔이 초음파를 가릴 수 있으므로 정지선 고정 후에는 초음파를 다시 읽지 않습니다. 팔 동작 중과 완료 뒤에도 바퀴 잠금은 유지합니다. 대기 시간 1초는 임시값이며 실제 정착 시간에 맞춰 조정합니다.
 
 ## 모듈 연결
 
@@ -60,7 +60,9 @@ flowchart TD
     D --> U[Ultra.read_sample 현재 거리]
     D --> M[기존 Move 및 조향 채널 0]
     D --> S[38cm 브레이크 후 펄스로 30±1cm 정지]
-    S --> H[바퀴 잠금 + 팔 활성화·보정된 경우 1초 대기 후 팔 순서]
+    S --> H[바퀴 잠금 + 팔 활성화·보정된 경우 1초 대기]
+    H --> L[PICK/PLACE QR로 박스 배치 판단]
+    L --> X[배치에 맞춘 팔 순서]
     B --> P[웹 상태 /mission/status]
 ```
 
@@ -124,7 +126,10 @@ sudo python3 Server/WebServer.py
 | `distance_offset_cm` | 0.0 | 초음파 거리 보정 |
 | `direct_distance_max_age_seconds` | 0.5 | 사용 가능한 현재 거리값의 최대 나이 |
 | `direct_distance_retry_seconds` | 3.0 | 측정 실패 때 멈춘 채 재측정하는 시간(주행 중, 펄스 후 측정 모두) |
-| `arm_start_delay_seconds` | 1.0 | 바퀴 잠금 후 팔을 시작하기 전 대기, 임시값 |
+| `arm_start_delay_seconds` | 1.0 | 바퀴 잠금 후 박스 배치 판단을 시작하기 전 대기, 임시값 |
+| `layout_frames` | 3 | 박스 배치가 같은 결과로 연속 몇 프레임 나와야 확정할지 |
+| `layout_min_gap` | 0.05 | 위/아래로 구분할 QR 중심 높이 차이의 최소값(화면 높이 비율) |
+| `layout_timeout_seconds` | 5.0 | 박스 배치를 기다리는 최대 시간. 넘으면 팔을 움직이지 않고 `ERROR` |
 | `approach_timeout_seconds` | 40.0 | 주행 시간 한도 |
 | `auto_approach_enabled` | true | 자동 주행 사용 |
 | `arm_enabled` | false | 보정 완료된 팔 순서 사용 여부 |
@@ -147,12 +152,12 @@ sudo python3 Server/WebServer.py
 
 ## 팔 보정과 서비스 등록
 
-팔 각도는 모두 임시 예시이며 `arm_enabled=false`, `calibration_confirmed=false` 상태입니다. [보정 안내](docs/ARM_CALIBRATION.md)에 관절 이름·임시값·측정 순서가 있습니다. 수동 보정 시에는 자동 접근과 팔 동작을 끄고 서버를 재시작합니다. 고정 자세 방식이며 물체 추적이나 실제 집기 성공 감지는 구현하지 않았습니다.
+팔 각도는 모두 임시 예시이며 `arm_enabled=false`, `calibration_confirmed=false` 상태입니다. [보정 안내](docs/ARM_CALIBRATION.md)에 관절 이름·임시값·측정 순서가 있습니다. 수동 보정 시에는 자동 접근과 팔 동작을 끄고 서버를 재시작합니다. 박스 4개마다 가르친 고정 자세를 쓰고, 카메라는 두 가지 배치 중 어느 쪽인지만 판단합니다. 물체 추적이나 실제 집기 성공 감지는 구현하지 않았습니다.
 
 팔 계획만 확인하는 명령은 모터·서보를 제어하지 않습니다.
 
 ```bash
-python3 -m picar_mission.arm_sequence --plan LEFT
+python3 -m picar_mission.arm_sequence --plan LEFT --layout LEFT_TOP
 ```
 
 부팅 시 이 체크아웃을 실행하려면 기존 서버 종료 후 선택적으로 등록합니다.

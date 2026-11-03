@@ -132,7 +132,8 @@ def poses_data():
     profile = json.loads((mission_bridge.ROOT / 'arm_poses.json').read_text(encoding='utf-8'))
     return jsonify(profile=profile, manual=not mission_bridge.config.auto_approach_enabled,
                    angles=mission_bridge.status().get('commanded_servo_angles_deg'),
-                   move=mission_bridge.pose_move_status())
+                   move=mission_bridge.pose_move_status(),
+                   layout_preview=mission_bridge.runtime.snapshot().get('layout_preview'))
 
 
 @app.route('/poses/save', methods=['POST'])
@@ -162,7 +163,7 @@ def poses_rehearse():
     from flask import jsonify, request
     body = request.get_json(silent=True) or {}
     try:
-        move = mission_bridge.rehearse(body.get('direction'))
+        move = mission_bridge.rehearse(body.get('direction'), body.get('layout'))
     except (ValueError, RuntimeError) as exc:
         return jsonify(error=str(exc)), 400
     return jsonify(move=move)

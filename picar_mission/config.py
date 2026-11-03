@@ -35,6 +35,10 @@ class MissionConfig:
     direct_distance_max_age_seconds: float = 0.5
     direct_distance_retry_seconds: float = 3.0
     arm_start_delay_seconds: float = 1.0
+    # Box layout from PICK/PLACE codes, read after the stop and before the arm.
+    layout_frames: int = 3
+    layout_min_gap: float = 0.05
+    layout_timeout_seconds: float = 5.0
     cruise_speed: int = 30
     slow_speed: int = 18
     slow_distance_cm: float = 50.0
@@ -146,6 +150,12 @@ def load_config(path=None):
         value = getattr(cfg, name)
         if type(value) is not int or value < (1 if name=='pulse_samples' else 0):
             raise ValueError(name+' must be a nonnegative integer (pulse_samples >= 1)')
+    if type(cfg.layout_frames) is not int or cfg.layout_frames < 1:
+        raise ValueError('layout_frames must be an integer >= 1')
+    if not 0 < number('layout_min_gap') < 1:
+        raise ValueError('Require 0 < layout_min_gap < 1')
+    if number('layout_timeout_seconds') <= 0:
+        raise ValueError('layout_timeout_seconds must be positive')
     if type(cfg.arm_jog_speed) is not int or not 1 <= cfg.arm_jog_speed <= 30:
         raise ValueError('arm_jog_speed must be an integer from 1 to 30')
     # Legacy precision settings remain readable for old files; the direct

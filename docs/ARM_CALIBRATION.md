@@ -9,16 +9,32 @@
 ## 메커니즘
 
 1. QR 인식과 초음파 접근을 거쳐 정지 명령을 내리고 바퀴 제어를 잠급니다.
-2. 기본 1초 대기 후, 팔 작업 활성화와 자세 보정 확인이 모두 완료된 경우에만 팔 작업을 시작합니다. 이 대기는 실물 정지를 측정한 확인 결과는 아닙니다.
-3. LEFT면 `left_pick → right_place`, 이어서 `right_pick → left_place` 순서입니다. RIGHT면 반대 순서입니다.
-4. 전체 19단계입니다(RIGHT 예시, LEFT는 좌우를 바꾼 같은 순서).
-   `center_clear` → `right_pick_above` → 집게 열기 → `right_pick` → 집게 닫기 → `right_pick_above` → `center_carry` → `left_place_above` → `left_place` → 집게 열기 → `left_place_above` → `left_pick_above` → `left_pick` → 집게 닫기 → `left_pick_above` → `center_carry` → `right_place_above` → `right_place` → 집게 열기.
-   처음 두 단계는 집게를 그대로 두고, 첫 물체 위에 도착한 뒤에 엽니다. 첫 물체를 놓은 뒤에는 중앙을 거치지 않고 같은 쪽의 두 번째 물체로 바로 갑니다. 마지막 물체를 놓고 집게를 연 자리에서 끝납니다.
-5. 자세 사이는 모든 관절이 함께 출발해 함께 도착하는 최소 저크 곡선으로 움직입니다. 출발과 정지 때 속도·가속도가 0이라 물체를 든 팔이 튀거나 떨지 않습니다. 최고 속도는 설정 속도를 넘지 않고, 집게를 닫은 단계(집기·운반·놓기)는 `carry_speed_deg_per_second`로 더 느리게 움직입니다. 목표 도착 후 안정 대기를 합니다. 단계·전체 시간초과는 계획된 이동 시간을 뺀 나머지 시간으로 셉니다.
-6. 팔 작업 중 차체의 전진·후진·조향 명령은 잠근 상태를 유지합니다. 팔은 채널 1~4만 사용합니다.
-7. 중지 요청이나 작업 시간초과 시 추가 팔 명령을 중단합니다. 물체를 떨어뜨릴 수 있으므로 자동으로 집게를 열거나 원점 복귀하지 않습니다. PWM은 유지하므로 전원을 끊었을 때의 하중 처리는 사용자가 해야 합니다.
+2. 기본 1초 대기 후, 팔 작업 활성화와 자세 보정 확인이 모두 완료된 경우에만 다음 단계로 갑니다. 이 대기는 실물 정지를 측정한 확인 결과는 아닙니다.
+3. **박스 배치 판단(`LAYOUT_WAIT`)**: 팔을 움직이기 전에 카메라로 PICK(물체)·PLACE(빈 박스) QR을 읽습니다. 박스는 왼쪽 2개·오른쪽 2개이고, 두 물체는 항상 대각선으로 놓이므로 배치는 두 가지뿐입니다.
 
-현재 방식은 고정 자세 재현입니다. 집게의 물체 감지 센서나 관절 엔코더 피드백이 없으며, PICK/PLACE QR 기반 자동 위치 보정은 적용하지 않았습니다. 두 번의 놓기 명령까지 끝나면 `COMPLETE`가 되며 실제 물체 이동 성공은 사람이 확인해야 합니다.
+   | 배치 이름 | 물체가 있는 박스 | 빈 박스 |
+   |---|---|---|
+   | `LEFT_TOP` | 왼쪽 위, 오른쪽 아래 | 왼쪽 아래, 오른쪽 위 |
+   | `LEFT_BOTTOM` | 왼쪽 아래, 오른쪽 위 | 왼쪽 위, 오른쪽 아래 |
+
+   화면 왼쪽 절반/오른쪽 절반으로 좌우를 나누고, QR 중심 높이를 비교합니다(화면에서 더 위에 보이는 줄이 "위"). 같은 쪽 PICK과 PLACE, 양쪽 PICK끼리, 양쪽 PLACE끼리 비교한 결과가 **모두 같은 배치를 가리킬 때만** 인정합니다. 그래서 스펀지가 PICK QR을 가려도 PLACE QR만으로 판단할 수 있습니다. 같은 결과가 `layout_frames`(3) 프레임 연속 나와야 확정합니다. 높이 차이가 `layout_min_gap`보다 작거나, 결과가 서로 어긋나거나, 같은 쪽에 같은 QR이 두 개 보이면 그 프레임은 판단하지 않습니다. `layout_timeout_seconds`(5초) 안에 확정하지 못하면 팔을 움직이지 않고 `ERROR`(`LAYOUT_NOT_DETECTED`)로 끝납니다.
+4. **옮기는 규칙**: 각 물체는 **같은 줄의 반대쪽 빈 박스**로 갑니다. QR 방향 쪽 물체를 먼저 옮깁니다.
+
+   | QR | 배치 | 첫 번째 | 두 번째 |
+   |---|---|---|---|
+   | LEFT | `LEFT_TOP` | 왼쪽 위 → 오른쪽 위 | 오른쪽 아래 → 왼쪽 아래 |
+   | RIGHT | `LEFT_TOP` | 오른쪽 아래 → 왼쪽 아래 | 왼쪽 위 → 오른쪽 위 |
+   | LEFT | `LEFT_BOTTOM` | 왼쪽 아래 → 오른쪽 아래 | 오른쪽 위 → 왼쪽 위 |
+   | RIGHT | `LEFT_BOTTOM` | 오른쪽 위 → 왼쪽 위 | 왼쪽 아래 → 오른쪽 아래 |
+
+5. 전체 19단계입니다. 예시는 LEFT·`LEFT_TOP`이며, 다른 경우도 박스 이름만 바뀐 같은 순서입니다.
+   `center_clear` → `left_top_above` → 집게 열기 → `left_top_down` → 집게 닫기 → `left_top_above` → `center_carry` → `right_top_above` → `right_top_down` → 집게 열기 → `right_top_above` → `right_bottom_above` → `right_bottom_down` → 집게 닫기 → `right_bottom_above` → `center_carry` → `left_bottom_above` → `left_bottom_down` → 집게 열기.
+   처음 두 단계는 집게를 그대로 두고, 첫 물체 위에 도착한 뒤에 엽니다. 첫 물체를 놓은 뒤에는 중앙을 거치지 않고 같은 쪽의 두 번째 물체로 바로 갑니다. 마지막 물체를 놓고 집게를 연 자리에서 끝납니다.
+6. 자세 사이는 모든 관절이 함께 출발해 함께 도착하는 최소 저크 곡선으로 움직입니다. 출발과 정지 때 속도·가속도가 0이라 물체를 든 팔이 튀거나 떨지 않습니다. 최고 속도는 설정 속도를 넘지 않고, 집게를 닫은 단계(집기·운반·놓기)는 `carry_speed_deg_per_second`로 더 느리게 움직입니다. 목표 도착 후 안정 대기를 합니다. 단계·전체 시간초과는 계획된 이동 시간을 뺀 나머지 시간으로 셉니다.
+7. 팔 작업 중 차체의 전진·후진·조향 명령은 잠근 상태를 유지합니다. 팔은 채널 1~4만 사용합니다. 카메라는 배치 판단에만 쓰고, 팔이 움직이는 동안에는 읽지 않습니다.
+8. 중지 요청이나 작업 시간초과 시 추가 팔 명령을 중단합니다. 물체를 떨어뜨릴 수 있으므로 자동으로 집게를 열거나 원점 복귀하지 않습니다. PWM은 유지하므로 전원을 끊었을 때의 하중 처리는 사용자가 해야 합니다.
+
+현재 방식은 박스별 고정 자세 재현입니다. QR은 두 배치 중 어느 쪽인지 고르는 데만 쓰고, QR 위치로 팔 각도를 미세 보정하지는 않습니다. 그래서 박스와 물체가 매번 같은 자리(박스 상단 모서리)에 놓이고, 차가 같은 자리에 멈춰야 합니다. 집게의 물체 감지 센서나 관절 엔코더 피드백도 없습니다. 두 번의 놓기 명령까지 끝나면 `COMPLETE`가 되며 실제 물체 이동 성공은 사람이 확인해야 합니다.
 
 ## 관절 이름과 단위
 
@@ -37,14 +53,16 @@
 |---|---|---:|---:|---:|
 | center_clear | 중앙 대기·빈 집게 경유 | 90 | 90 | 90 |
 | center_carry | 물체를 든 중앙 경유 | 90 | 80 | 100 |
-| left_pick_above | 왼쪽 물체 위 접근 | 55 | 80 | 100 |
-| left_pick | 왼쪽 물체 집기 | 55 | 105 | 115 |
-| left_place_above | 왼쪽 빈 상자 위 접근 | 65 | 80 | 100 |
-| left_place | 왼쪽 빈 상자에 놓기 | 65 | 100 | 110 |
-| right_pick_above | 오른쪽 물체 위 접근 | 125 | 80 | 100 |
-| right_pick | 오른쪽 물체 집기 | 125 | 105 | 115 |
-| right_place_above | 오른쪽 빈 상자 위 접근 | 115 | 80 | 100 |
-| right_place | 오른쪽 빈 상자에 놓기 | 115 | 100 | 110 |
+| left_top_above | 왼쪽 위 박스 모서리 바로 위 | 60 | 80 | 100 |
+| left_top_down | 왼쪽 위 박스에서 집기·놓기 | 60 | 105 | 115 |
+| left_bottom_above | 왼쪽 아래 박스 모서리 바로 위 | 45 | 85 | 105 |
+| left_bottom_down | 왼쪽 아래 박스에서 집기·놓기 | 45 | 110 | 125 |
+| right_top_above | 오른쪽 위 박스 모서리 바로 위 | 120 | 80 | 100 |
+| right_top_down | 오른쪽 위 박스에서 집기·놓기 | 120 | 105 | 115 |
+| right_bottom_above | 오른쪽 아래 박스 모서리 바로 위 | 135 | 85 | 105 |
+| right_bottom_down | 오른쪽 아래 박스에서 집기·놓기 | 135 | 110 | 125 |
+
+물체는 늘 박스의 상단 모서리에 놓이므로, 한 박스의 `_down` 자세는 그 박스에서 집을 때와 놓을 때 모두 씁니다. 배치에 따라 같은 박스가 집는 곳도, 놓는 곳도 되기 때문입니다. "위/아래"는 정지 위치에서 **카메라 화면에 더 위에 보이는 줄**이 위입니다. 예전 `left_pick`·`right_place` 이름이 남은 `arm_poses.json`은 불러올 때 거부되니 새 이름으로 다시 가르치세요.
 
 | 그 밖의 설정 | 임시값 | 측정/확인할 내용 |
 |---|---|---|
@@ -69,7 +87,8 @@
 1. 로봇을 실제 정지 위치에 고정하고 경기장과 같은 위치에 네 상자를 놓습니다. 실제 초음파 센서와 모니터 사이 거리도 기록하세요. 차체 위치가 바뀌면 같은 팔 각도의 작업 위치가 달라집니다.
 2. 실행 중인 서비스를 멈추고 `mission_config.json`에서 `auto_approach_enabled=false`, `arm_enabled=false`로 설정합니다. 서버를 다시 실행한 뒤 기존 웹 ARM Control로 수동 조작합니다. 자동 접근이 켜진 상태에서 보정하지 않습니다.
 3. 관절을 조금씩 움직이며 집게 열림·닫힘, 중앙 대기, 물체를 든 중앙 경유 자세를 찾습니다. 기존 수동 제어에는 새 팔 모듈의 속도/각도 제한이 적용되지 않으므로 작은 조작으로 확인합니다.
-4. 좌우 물체의 집기 자세와 좌우 빈 상자의 놓기 자세를 맞춥니다. 각 위치 바로 위의 접근·후퇴 자세도 따로 기록합니다.
+4. 박스 4개 각각에 스펀지를 상단 모서리에 놓고, 집게가 스펀지를 잡는 `_down` 자세와 그 바로 위의 `_above` 자세를 맞춥니다. `_down`에서 집게를 열면 스펀지가 그 박스 안에 들어가는지도 확인합니다(같은 자세로 놓기도 합니다).
+   `/poses/legacy` 페이지의 **카메라 배치 판단** 줄이 실제 배치(`LEFT_TOP`/`LEFT_BOTTOM`)와 맞는지도 이 정지 위치에서 확인합니다. "판단 불가"면 PICK/PLACE QR이 화면에 들어오는지, 위아래 줄이 화면에서 충분히 떨어져 보이는지 보세요.
 5. 다른 탭에서 `http://로봇IP:5000/poses/legacy`를 열고, 자세를 맞출 때마다 해당 이름의 **저장**을 누릅니다. 현재 `commanded_servo_angles_deg`가 `arm_poses.json`에 바로 기록됩니다(자세는 base/shoulder/elbow, `gripper_open`·`gripper_closed`는 집게 각도만). 허용 범위를 벗어나면 저장을 거부하고, `calibration_confirmed`는 바꾸지 않습니다. 마지막 명령값이므로 실제 팔이 따라왔는지는 눈으로 확인합니다. 저장 후 서버를 재시작해야 반영됩니다.
 6. 각 자세의 안전한 관절 범위, 실제 집기/놓기 대기 시간, 물체를 든 경유 경로를 확인합니다. 모니터 접촉과 케이블 당김이 없어야 합니다.
 7. 아래 양식으로 실제 값을 알려주세요. 코드의 값을 교체하고 동작 순서를 다시 검토합니다. 미확인 값이 있으면 `calibration_confirmed=false`를 유지합니다.
@@ -79,27 +98,28 @@
 집게 열기: __ 도 / 닫기: __ 도
 center_clear: base __, shoulder __, elbow __
 center_carry: base __, shoulder __, elbow __
-left_pick_above: base __, shoulder __, elbow __
-left_pick: base __, shoulder __, elbow __
-left_place_above: base __, shoulder __, elbow __
-left_place: base __, shoulder __, elbow __
-right_pick_above: base __, shoulder __, elbow __
-right_pick: base __, shoulder __, elbow __
-right_place_above: base __, shoulder __, elbow __
-right_place: base __, shoulder __, elbow __
+left_top_above: base __, shoulder __, elbow __
+left_top_down: base __, shoulder __, elbow __
+left_bottom_above: base __, shoulder __, elbow __
+left_bottom_down: base __, shoulder __, elbow __
+right_top_above: base __, shoulder __, elbow __
+right_top_down: base __, shoulder __, elbow __
+right_bottom_above: base __, shoulder __, elbow __
+right_bottom_down: base __, shoulder __, elbow __
+카메라 배치 판단이 맞았는지: LEFT_TOP __ / LEFT_BOTTOM __
 실제 안전 관절 범위: base __~__, shoulder __~__, elbow __~__, gripper __~__
 물체를 든 상태의 안정 속도/대기 시간: __
 ```
 
 ## 보정 후 활성화
 
-활성화 전에 수동 모드의 `/poses/legacy` 페이지에서 **RIGHT/LEFT 순서 실행**으로 19단계 전체를 주행 없이 그 자리에서 미리 돌려 봅니다. 자동 미션과 같은 순서·속도이며 `calibration_confirmed=false`여도 실행됩니다. **팔 이동 정지**나 기본 웹 제어의 ARM 버튼을 누르면 그 자세 그대로 멈춥니다(집게를 열지 않음).
+활성화 전에 수동 모드의 `/poses/legacy` 페이지에서 **RIGHT/LEFT 순서 실행** 버튼 4개(QR 방향 2 × 배치 2)로 19단계 전체를 주행 없이 그 자리에서 미리 돌려 봅니다. 버튼마다 스펀지를 해당 배치로 놓고 실행하세요. 자동 미션과 같은 순서·속도이며 `calibration_confirmed=false`여도 실행됩니다. **팔 이동 정지**나 기본 웹 제어의 ARM 버튼을 누르면 그 자세 그대로 멈춥니다(집게를 열지 않음).
 
 실제 값과 이동 경로를 확인한 뒤에만 `arm_poses.json`의 `calibration_confirmed=true`, `mission_config.json`의 `arm_enabled=true`, `auto_approach_enabled=true`로 바꾸고 서버를 재시작합니다. 이때 QR 인식 후 **주행과 팔 작업이 모두 자동으로 실행**됩니다. 활성화되지 않았거나 보정이 확인되지 않으면 기존처럼 `STOPPED_WAIT`에서 대기합니다.
 
 실제 팔을 움직이지 않고 계획만 출력하려면 저장소 루트에서 실행합니다.
 
 ```bash
-python3 -m picar_mission.arm_sequence --plan LEFT
-python3 -m picar_mission.arm_sequence --plan RIGHT
+python3 -m picar_mission.arm_sequence --plan LEFT --layout LEFT_TOP
+python3 -m picar_mission.arm_sequence --plan RIGHT --layout LEFT_BOTTOM
 ```

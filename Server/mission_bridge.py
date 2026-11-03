@@ -9,7 +9,7 @@ if str(ROOT) not in sys.path:
 from picar_mission.config import load_config
 from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
-from picar_mission.arm_sequence import MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_profile, pose_targets, save_pose as save_arm_pose
+from picar_mission.arm_sequence import LAYOUTS, MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_profile, pose_targets, save_pose as save_arm_pose
 from picar_mission.arm_positions import PositionStore
 from picar_mission.recorder import ARM_COMMANDS, DemoRecorder
 from picar_mission.heading import GyroHeading
@@ -45,6 +45,7 @@ def _make_controller():
     arm = ArmSequence(ArmAdapter(_servo),load_profile()) if config.arm_enabled else None
     return DirectMissionController(config,DriveAdapter(_move,_servo),
         _ultrasound.read_sample,runtime.snapshot,arm_sequence=arm,
+        request_layout=runtime.request_layout,
         read_heading=None if gyro is None else gyro.read_sample,
         read_battery=_read_battery_volts)
 
@@ -440,7 +441,7 @@ def set_joint_angle(joint, angle, expected_revision=None, session_id=None):
         return position_data()
 
 
-def rehearse(direction):
+def rehearse(direction, layout):
     """Teach mode only: run the automatic arm plan in place, without driving."""
     global _pose_move
     if config.auto_approach_enabled:
@@ -449,11 +450,13 @@ def rehearse(direction):
         raise ValueError('서보가 아직 준비되지 않았습니다')
     if direction not in ('LEFT','RIGHT'):
         raise ValueError('direction must be LEFT or RIGHT')
+    if layout not in LAYOUTS:
+        raise ValueError('layout must be LEFT_TOP or LEFT_BOTTOM')
     stop_pose_move()
     sequence = ArmSequence(ArmAdapter(_servo),load_profile())
-    sequence.start(direction,require_calibration=False)
+    sequence.start(direction,layout,require_calibration=False)
     stop = Event()
-    info = dict(name=direction+' 순서',state='MOVING',error=None,step_index=0,
+    info = dict(name=direction+' '+layout+' 순서',state='MOVING',error=None,step_index=0,
                 step_count=len(sequence.steps),action=None,pose=None)
 
     def run():

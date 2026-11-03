@@ -16,9 +16,14 @@ table{border-collapse:collapse;width:100%}th,td{padding:4px 8px;text-align:left;
 <p id="mode"></p>
 <p id="live">현재 명령각 확인 중…</p>
 <p><button id="halt" class="danger" type="button">팔 이동 정지</button> <span id="move"></span></p>
-<p>주행 없이 이 자리에서 자동 팔 순서(19단계) 미리 실행:
-<button class="go" data-rehearse="RIGHT">RIGHT 순서 실행</button>
-<button class="go" data-rehearse="LEFT">LEFT 순서 실행</button></p>
+<p id="layout">카메라 배치 판단 확인 중…</p>
+<p>주행 없이 이 자리에서 자동 팔 순서(19단계) 미리 실행. 물체는 같은 줄의 반대쪽 빈 박스로 옮깁니다.</p>
+<div class="wrap"><table>
+<thead><tr><th>물체 위치</th><th>RIGHT QR</th><th>LEFT QR</th></tr></thead>
+<tbody>
+<tr><td>왼쪽 위 + 오른쪽 아래 (<code>LEFT_TOP</code>)</td><td><button class="go" data-rehearse="RIGHT" data-layout="LEFT_TOP">RIGHT 순서 실행</button></td><td><button class="go" data-rehearse="LEFT" data-layout="LEFT_TOP">LEFT 순서 실행</button></td></tr>
+<tr><td>왼쪽 아래 + 오른쪽 위 (<code>LEFT_BOTTOM</code>)</td><td><button class="go" data-rehearse="RIGHT" data-layout="LEFT_BOTTOM">RIGHT 순서 실행</button></td><td><button class="go" data-rehearse="LEFT" data-layout="LEFT_BOTTOM">LEFT 순서 실행</button></td></tr>
+</tbody></table></div>
 <p id="msg" role="status"></p>
 <div class="wrap"><table>
 <thead><tr><th>이름</th><th>의미</th><th>저장된 값</th><th></th></tr></thead>
@@ -31,10 +36,11 @@ const $=id=>document.getElementById(id), msg=t=>$('msg').textContent=t;
 const SLOTS=[
   ['gripper_open','집게 충분히 열기'],['gripper_closed','스펀지가 실제로 잡히는 닫힘'],
   ['center_clear','중앙 대기·빈 집게 경유'],['center_carry','물체를 들고 중앙 통과'],
-  ['left_pick_above','왼쪽 물체 위 접근'],['left_pick','왼쪽 물체 집기'],
-  ['left_place_above','왼쪽 놓을 위치 위'],['left_place','왼쪽 놓기'],
-  ['right_pick_above','오른쪽 물체 위 접근'],['right_pick','오른쪽 물체 집기'],
-  ['right_place_above','오른쪽 놓을 위치 위'],['right_place','오른쪽 놓기']];
+  ['left_top_above','왼쪽 위 박스 모서리 바로 위'],['left_top_down','왼쪽 위 박스에서 집기·놓기'],
+  ['left_bottom_above','왼쪽 아래 박스 모서리 바로 위'],['left_bottom_down','왼쪽 아래 박스에서 집기·놓기'],
+  ['right_top_above','오른쪽 위 박스 모서리 바로 위'],['right_top_down','오른쪽 위 박스에서 집기·놓기'],
+  ['right_bottom_above','오른쪽 아래 박스 모서리 바로 위'],['right_bottom_down','오른쪽 아래 박스에서 집기·놓기']];
+const LAYOUT_TEXT={LEFT_TOP:'왼쪽 위 + 오른쪽 아래에 물체 (LEFT_TOP)',LEFT_BOTTOM:'왼쪽 아래 + 오른쪽 위에 물체 (LEFT_BOTTOM)'};
 let manual=false, built=false;
 function stored(p,name){
   if(name.startsWith('gripper_'))return 'gripper '+p.gripper_deg[name.slice(8)];
@@ -52,6 +58,7 @@ function render(d){
     built=true;
   }
   SLOTS.forEach(([n])=>$('v-'+n).textContent=stored(d.profile,n));
+  $('layout').textContent='카메라 배치 판단: '+(LAYOUT_TEXT[d.layout_preview]||'판단 불가 (PICK/PLACE QR이 위아래로 구분되게 보이는지 확인)');
   document.querySelectorAll('[data-name],[data-move],[data-rehearse]').forEach(b=>b.disabled=!manual||!a);
   const m=d.move, label={MOVING:'이동 중',DONE:'도착',STOPPED:'정지됨',ERROR:'오류'};
   const progress=m&&m.step_count?` (${Math.min(m.step_index+1,m.step_count)}/${m.step_count} ${m.action} ${m.pose})`:'';
@@ -72,7 +79,8 @@ async function post(url,body){
 }
 async function move(name){try{await post('/poses/move',{name});msg('이동 시작: '+name);}catch(e){msg('이동 실패: '+e.message);}}
 document.querySelectorAll('[data-rehearse]').forEach(b=>b.onclick=async()=>{
-  try{await post('/poses/rehearse',{direction:b.dataset.rehearse});msg(b.dataset.rehearse+' 순서 미리 실행 시작 — 멈추려면 팔 이동 정지');}catch(e){msg('미리 실행 실패: '+e.message);}});
+  const body={direction:b.dataset.rehearse,layout:b.dataset.layout};
+  try{await post('/poses/rehearse',body);msg(`${body.direction} ${body.layout} 순서 미리 실행 시작 — 멈추려면 팔 이동 정지`);}catch(e){msg('미리 실행 실패: '+e.message);}});
 $('halt').onclick=async()=>{try{await post('/poses/stop');msg('팔 이동 정지');}catch(e){msg('정지 실패: '+e.message+' — 기본 웹 제어의 정지 버튼이나 전원을 사용하세요.');}};
 async function refresh(){try{const r=await fetch('/poses/data',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);render(await r.json());}catch(e){$('live').textContent='서버 연결 확인 필요: '+e.message;}finally{setTimeout(refresh,700);}}
 refresh();

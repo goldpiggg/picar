@@ -287,6 +287,7 @@ class DirectTests(unittest.TestCase):
     def test_arm_wait_ignores_distance_band_and_starts_after_delay(self):
         h=Harness()
         h.controller.cfg=replace(h.controller.cfg,arm_enabled=True)
+        requests=[];h.controller.request_layout=lambda:requests.append(h.time)
         driver=test_arm.FakeArm()
         h.controller.arm=test_arm.ArmSequence(driver,test_arm.calibrated_profile(),clock=lambda:h.time)
         h.echo(80.);h.near(36.)
@@ -295,12 +296,36 @@ class DirectTests(unittest.TestCase):
         self.assertFalse(h.controller.snapshot()['arm_motion_enabled'])
         self.assertEqual(h.echo(34.,dt=.99)['state'],'ARM_WAIT')
         self.assertEqual(driver.writes,[])
+        self.assertEqual(requests,[])
+        # After the delay the camera is asked for the box layout first.
+        self.assertEqual(h.echo(None,dt=.02)['state'],'LAYOUT_WAIT')
+        self.assertEqual(h.echo(None,dt=.5)['state'],'LAYOUT_WAIT')
+        self.assertEqual((len(requests),driver.writes),(1,[]))
+        h.qr.update(state='LAYOUT_CONFIRMED',layout='LEFT_BOTTOM')
         self.assertEqual(h.echo(None,dt=.02)['state'],'ARM_TRANSFER')
         self.assertEqual(h.controller.arm.state,'MOVING')
+        self.assertEqual(h.controller.arm.steps[1]['pose'],'left_bottom_above')
+        self.assertEqual(len(requests),1)
+
+    def test_missing_layout_or_camera_error_stops_before_the_arm(self):
+        for qr_state,error in [('WAIT_LAYOUT','LAYOUT_NOT_DETECTED'),('ERROR','QR_CAMERA_ERROR: lost')]:
+            with self.subTest(qr_state=qr_state):
+                h=Harness()
+                h.controller.cfg=replace(h.controller.cfg,arm_enabled=True,arm_start_delay_seconds=0.)
+                driver=test_arm.FakeArm()
+                h.controller.arm=test_arm.ArmSequence(driver,test_arm.calibrated_profile(),clock=lambda:h.time)
+                h.echo(80.);h.near(36.);h.settle(30.)
+                self.assertEqual(h.echo(None,dt=.02)['state'],'LAYOUT_WAIT')
+                h.qr.update(state=qr_state,error='lost')
+                h.echo(None,dt=h.controller.cfg.layout_timeout_seconds+.1)
+                state=h.controller.snapshot()
+                self.assertEqual((state['state'],state['error']),('ERROR',error))
+                self.assertEqual(driver.writes,[])
 
     def test_optional_calibrated_arm_completes_both_transfers_after_direct_stop(self):
         for direction in ['LEFT','RIGHT']:
             h=Harness(direction)
+            h.qr['layout']='LEFT_TOP'
             h.controller.cfg=replace(h.controller.cfg,arm_enabled=True)
             driver=test_arm.FakeArm()
             h.controller.arm=test_arm.ArmSequence(driver,test_arm.calibrated_profile(),clock=lambda:h.time)
@@ -308,9 +333,10 @@ class DirectTests(unittest.TestCase):
             wheel_count=len(h.drive.commands)
             def forbidden(): raise AssertionError('No sensor/camera reads after target stop')
             h.controller.read_sample=forbidden
-            h.controller.qr_snapshot=forbidden
             for _ in range(20): h.echo(20.)
             self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
+            # The camera is read only for the layout, never while the arm moves.
+            h.controller.qr_snapshot=forbidden
             for _ in range(4000):
                 h.time+=.05;h.controller.step()
                 if h.controller.snapshot()['state']=='COMPLETE': break
