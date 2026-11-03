@@ -9,6 +9,13 @@ from collections import deque
 import Switch as switch
 import smbus
 import Buzzer
+from pathlib import Path
+import sys
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from picar_mission.battery_alarm import alarm
+alarm.bind_buzzer(Buzzer.tb.play, Buzzer.tb.stop)
 SINGLE_NOTE = [("C4", 1)]
 
 OLED_connection = 1
@@ -26,7 +33,7 @@ except:
 
 average_voltage = 0.0
 full_voltage = 8.4
-WarningThreshold = 6.3
+WarningThreshold = alarm.threshold_volts
 # read the ADC value of channel 0
 ADCVref = 4.93
 channel = 0
@@ -70,6 +77,7 @@ class BatteryLevelMonitor(threading.Thread):
 
                 if filtered_data:
                     average_voltage = sum(filtered_data) / len(filtered_data)
+                    alarm.update_voltage(average_voltage)
                     if OLED_connection:
                         display_text = f'Voltage {average_voltage:.2f} V'
                         screen.screen_show(6, display_text)
@@ -84,9 +92,7 @@ class BatteryLevelMonitor(threading.Thread):
 
     def play_note(self):
         for note, duration in SINGLE_NOTE:
-            Buzzer.tb.play(note)
-            time.sleep(float(duration))
-        Buzzer.tb.stop()
+            alarm.play_note(note, float(duration))
 
     def trigger_alarm(self):
         self.play_note()

@@ -88,8 +88,8 @@
 2. 실행 중인 서비스를 멈추고 `mission_config.json`에서 `auto_approach_enabled=false`, `arm_enabled=false`로 설정합니다. 서버를 다시 실행한 뒤 기존 웹 ARM Control로 수동 조작합니다. 자동 접근이 켜진 상태에서 보정하지 않습니다.
 3. 관절을 조금씩 움직이며 집게 열림·닫힘, 중앙 대기, 물체를 든 중앙 경유 자세를 찾습니다. 기존 수동 제어에는 새 팔 모듈의 속도/각도 제한이 적용되지 않으므로 작은 조작으로 확인합니다.
 4. 박스 4개 각각에 스펀지를 상단 모서리에 놓고, 집게가 스펀지를 잡는 `_down` 자세와 그 바로 위의 `_above` 자세를 맞춥니다. `_down`에서 집게를 열면 스펀지가 그 박스 안에 들어가는지도 확인합니다(같은 자세로 놓기도 합니다).
-   `/poses` 페이지의 **카메라 배치 판단** 줄이 실제 배치(`LEFT_TOP`/`LEFT_BOTTOM`)와 맞는지도 이 정지 위치에서 확인합니다. "판단 불가"면 PICK/PLACE QR이 화면에 들어오는지, 위아래 줄이 화면에서 충분히 떨어져 보이는지 보세요.
-5. 다른 탭에서 `http://로봇IP:5000/poses`를 열고, 자세를 맞출 때마다 해당 이름의 **저장**을 누릅니다. 현재 `commanded_servo_angles_deg`가 `arm_poses.json`에 바로 기록됩니다(자세는 base/shoulder/elbow, `gripper_open`·`gripper_closed`는 집게 각도만). 허용 범위를 벗어나면 저장을 거부하고, `calibration_confirmed`는 바꾸지 않습니다. 마지막 명령값이므로 실제 팔이 따라왔는지는 눈으로 확인합니다. 저장 후 서버를 재시작해야 반영됩니다.
+   `/poses/legacy` 페이지의 **카메라 배치 판단** 줄이 실제 배치(`LEFT_TOP`/`LEFT_BOTTOM`)와 맞는지도 이 정지 위치에서 확인합니다. "판단 불가"면 PICK/PLACE QR이 화면에 들어오는지, 위아래 줄이 화면에서 충분히 떨어져 보이는지 보세요.
+5. 다른 탭에서 `http://로봇IP:5000/poses/legacy`를 열고, 자세를 맞출 때마다 해당 이름의 **저장**을 누릅니다. 현재 `commanded_servo_angles_deg`가 `arm_poses.json`에 바로 기록됩니다(자세는 base/shoulder/elbow, `gripper_open`·`gripper_closed`는 집게 각도만). 허용 범위를 벗어나면 저장을 거부하고, `calibration_confirmed`는 바꾸지 않습니다. 마지막 명령값이므로 실제 팔이 따라왔는지는 눈으로 확인합니다. 저장 후 서버를 재시작해야 반영됩니다.
 6. 각 자세의 안전한 관절 범위, 실제 집기/놓기 대기 시간, 물체를 든 경유 경로를 확인합니다. 모니터 접촉과 케이블 당김이 없어야 합니다.
 7. 아래 양식으로 실제 값을 알려주세요. 코드의 값을 교체하고 동작 순서를 다시 검토합니다. 미확인 값이 있으면 `calibration_confirmed=false`를 유지합니다.
 
@@ -113,7 +113,7 @@ right_bottom_down: base __, shoulder __, elbow __
 
 ## 보정 후 활성화
 
-활성화 전에 수동 모드의 `/poses` 페이지에서 **RIGHT/LEFT 순서 실행** 버튼 4개(QR 방향 2 × 배치 2)로 19단계 전체를 주행 없이 그 자리에서 미리 돌려 봅니다. 버튼마다 스펀지를 해당 배치로 놓고 실행하세요. 자동 미션과 같은 순서·속도이며 `calibration_confirmed=false`여도 실행됩니다. **팔 이동 정지**나 기본 웹 제어의 ARM 버튼을 누르면 그 자세 그대로 멈춥니다(집게를 열지 않음).
+활성화 전에 수동 모드의 `/poses/legacy` 페이지에서 **RIGHT/LEFT 순서 실행** 버튼 4개(QR 방향 2 × 배치 2)로 19단계 전체를 주행 없이 그 자리에서 미리 돌려 봅니다. 버튼마다 스펀지를 해당 배치로 놓고 실행하세요. 자동 미션과 같은 순서·속도이며 `calibration_confirmed=false`여도 실행됩니다. **팔 이동 정지**나 기본 웹 제어의 ARM 버튼을 누르면 그 자세 그대로 멈춥니다(집게를 열지 않음).
 
 실제 값과 이동 경로를 확인한 뒤에만 `arm_poses.json`의 `calibration_confirmed=true`, `mission_config.json`의 `arm_enabled=true`, `auto_approach_enabled=true`로 바꾸고 서버를 재시작합니다. 이때 QR 인식 후 **주행과 팔 작업이 모두 자동으로 실행**됩니다. 활성화되지 않았거나 보정이 확인되지 않으면 기존처럼 `STOPPED_WAIT`에서 대기합니다.
 

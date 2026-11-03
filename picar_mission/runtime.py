@@ -97,6 +97,8 @@ class MissionRuntime:
         detections = reader.detect(frame)
         direction = layout = None
         with self.lock:
+            if self.data['state'] not in SCANNING or self.stop_event.is_set():
+                return None
             if self._stale(captured_at):
                 return None
             self.data.update(detections=detections,

@@ -12,10 +12,13 @@ from camera_opencv import Camera
 import camera_opencv
 import threading
 import mission_bridge
+from picar_mission.battery_alarm import alarm as battery_alarm
+from picar_mission.battery_routes import register_battery_routes
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
-camera = Camera()
+register_battery_routes(app, battery_alarm, str(mission_bridge.ROOT / 'picar_mission'))
+camera = Camera(wait_for_first_frame=False)
 
 def gen(camera):
     while True:
@@ -32,7 +35,9 @@ def video_feed():
 @app.route('/mission/status')
 def mission_status():
     from flask import jsonify
-    return jsonify(mission_bridge.status())
+    response = jsonify(mission_bridge.status())
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @app.route('/mission/stop', methods=['POST'])
@@ -40,6 +45,45 @@ def mission_stop():
     from flask import jsonify
     mission_bridge.cancel('WEB_STOP')
     return jsonify(mission_bridge.status())
+
+
+@app.route('/dashboard')
+def dashboard_page():
+    response = send_from_directory(str(mission_bridge.ROOT / 'picar_mission'), 'dashboard.html')
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.route('/dashboard/start', methods=['POST'])
+def dashboard_start():
+    from flask import jsonify, request
+    from urllib.parse import urlsplit
+    # A motion-start request must originate from this controller's own page.
+    origin = request.headers.get('Origin')
+    if origin and urlsplit(origin).netloc != request.host:
+        return jsonify(error='이 로봇의 웹 화면에서 시작하세요'), 403
+    if not request.is_json:
+        return jsonify(error='JSON 요청이 필요합니다'), 415
+    body = request.get_json(silent=True)
+    if not isinstance(body,dict) or type(body.get('expected_revision')) is not int:
+        return jsonify(error='현재 제어 상태를 먼저 확인하세요'), 400
+    if body.get('session_id') != mission_bridge.SESSION_ID:
+        return jsonify(error='서버가 다시 시작됐습니다. 현재 상태를 확인하고 다시 누르세요'), 409
+    try:
+        result = mission_bridge.start_mission(body['expected_revision'])
+    except (ValueError,RuntimeError) as exc:
+        return jsonify(error=str(exc)), 409
+    response = jsonify(result)
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.route('/dashboard/assets/<filename>')
+def dashboard_asset(filename):
+    from flask import abort
+    if filename not in ('dashboard.css','dashboard.js'):
+        abort(404)
+    return send_from_directory(str(mission_bridge.ROOT / 'picar_mission'), filename)
 
 
 @app.route('/record')
@@ -72,7 +116,11 @@ def record_action(action):
     return jsonify(result=result, status=recorder.status())
 
 
-@app.route('/poses')
+from picar_mission.position_routes import register_position_routes
+register_position_routes(app, mission_bridge, str(mission_bridge.ROOT / 'picar_mission'))
+
+
+@app.route('/poses/legacy')
 def poses_page():
     return send_from_directory(str(mission_bridge.ROOT / 'picar_mission'), 'poses.html')
 
