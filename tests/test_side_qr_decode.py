@@ -64,7 +64,7 @@ class SmallCodeTests(unittest.TestCase):
 class CrumpledSheetTests(unittest.TestCase):
     def test_classic_detector_path_preserves_robot_frame_decisions(self):
         from picar_mission.qr_scan import QRReader
-        reader = QRReader(cv2)
+        reader = QRReader(cv2,use_zxing=False)
         reader.aruco = None  # Raspberry Pi OpenCV versions without Aruco QR.
         for name, expected in [('side_crumpled.png',None),
                                ('side_place_unread.png','LEFT-B'),('side_pick_only.png',None)]:
@@ -83,7 +83,7 @@ class CrumpledSheetTests(unittest.TestCase):
             calls.append('locate')
             return False,None
         detector = SimpleNamespace(detectAndDecodeMulti=decode,detectMulti=locate)
-        reader = QRReader(SimpleNamespace(QRCodeDetector=lambda:detector))
+        reader = QRReader(SimpleNamespace(QRCodeDetector=lambda:detector),use_zxing=False)
         found = reader.detect_side(np.zeros((480,640),dtype=np.uint8),one_is_enough=True)
         self.assertIsNone(classify_side_start(found,'LEFT',settled=True))
         self.assertEqual(calls,['decode','locate'])
@@ -103,7 +103,7 @@ class CrumpledSheetTests(unittest.TestCase):
     def test_unread_place_box_next_to_a_centered_pick_decides(self):
         # PICK near the center, PLACE on a curled sheet: located, never decoded.
         from picar_mission.qr_scan import QRReader
-        found = QRReader(cv2).detect_side(cv2.imread(str(FIXTURES/'side_place_unread.png')), one_is_enough=True)
+        found = QRReader(cv2,use_zxing=False).detect_side(cv2.imread(str(FIXTURES/'side_place_unread.png')), one_is_enough=True)
         self.assertEqual(classify_side_start(found, 'LEFT', settled=True), 'LEFT-B')
         self.assertIsNone(classify_side_start(found, 'LEFT'))  # Never while turning.
 
