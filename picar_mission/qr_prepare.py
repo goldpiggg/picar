@@ -84,6 +84,8 @@ class QrPreparation:
         self.started_at, self.state = now, 'MOVING'
 
     def next_pitch_target(self, detections=()):
+        if self.elbow_angle is not None:
+            return None  # An explicit preparation angle stays fixed during QR search.
         if self.pitch_targets is None:
             known = [item for item in detections if item.get('label') in ('PICK','PLACE')]
             if len(known) != 1:
@@ -102,7 +104,7 @@ class QrPreparation:
         return self.pitch_targets[0] if self.pitch_targets else None
 
     def scan_pitch(self, now):
-        if self.state != 'READY' or not self.pitch_targets:
+        if self.elbow_angle is not None or self.state != 'READY' or not self.pitch_targets:
             raise RuntimeError('QR_PITCH_SCAN_NOT_READY')
         self.elbow_target = self.pitch_targets.pop(0)
         self.scan_axis = 'ELBOW'
