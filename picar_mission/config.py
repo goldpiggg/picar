@@ -49,9 +49,8 @@ class MissionConfig:
     carry_clearance_shoulder_deg: float = 105.0
     carry_clearance_elbow_deg: float = 113.0
     qr_scan_timeout_seconds: float = 1.5
-    # Elbow change while looking at the side QR codes, from wherever the elbow
-    # is then (the reset pose). Negative lowers it, like the web "hand down".
-    qr_prepare_elbow_offset_deg: float = -10.0
+    # Elbow angle while looking at the side QR codes, whatever the reset pose.
+    qr_prepare_elbow_deg: float = 80.0
     side_qr_settle_seconds: float = 0.3
     # After the turn, decide from one PICK or PLACE code alone when the other
     # cannot be decoded. Off: both codes are always required.
@@ -153,8 +152,8 @@ def load_config(path=None):
     for name in ('carry_clearance_shoulder_deg','carry_clearance_elbow_deg'):
         if not 0 <= number(name) <= 189:
             raise ValueError(name+' must be within 0~189 degrees')
-    if abs(number('qr_prepare_elbow_offset_deg')) > 90:
-        raise ValueError('Require |qr_prepare_elbow_offset_deg| <= 90')
+    if not 0 <= number('qr_prepare_elbow_deg') <= 189:
+        raise ValueError('qr_prepare_elbow_deg must be within 0~189 degrees')
     if type(cfg.side_single_code) is not bool:
         raise ValueError('side_single_code must be boolean')
     if number('side_qr_settle_seconds') < 0:

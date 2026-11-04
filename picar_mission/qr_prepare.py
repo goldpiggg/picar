@@ -15,12 +15,14 @@ def side_view_targets(positions, limits, fallback):
 
 
 class QrPreparation:
-    def __init__(self, driver, profile, targets, speed, elbow_offset=0.):
+    def __init__(self, driver, profile, targets, speed, elbow_offset=0., elbow_angle=None):
         self.driver, self.profile, self.speed = driver, profile, speed
         self.base_targets = dict(targets)
         # Relative to the elbow at start, so the camera tilts the same amount
         # whatever reset pose the arm is in.
         self.elbow_offset = elbow_offset
+        # An absolute elbow angle overrides the offset.
+        self.elbow_angle = elbow_angle
         self.elbow_target = None
         self.state = 'IDLE'
         self.move = None
@@ -39,9 +41,12 @@ class QrPreparation:
         low, high = self.profile.limits['base']
         if not number(target) or not low <= target <= high:
             raise ValueError('QR_BASE_TARGET_OUT_OF_LIMITS: '+direction)
-        if not self.elbow_offset:
+        if self.elbow_angle is not None:
+            elbow = self.elbow_angle
+        elif not self.elbow_offset:
             return {'base': target}
-        elbow = self.driver.read_angles()['elbow']+self.elbow_offset
+        else:
+            elbow = self.driver.read_angles()['elbow']+self.elbow_offset
         low, high = self.profile.limits['elbow']
         if not number(elbow) or not low <= elbow <= high:
             raise ValueError('QR_ELBOW_TARGET_OUT_OF_LIMITS: %g' % elbow)
