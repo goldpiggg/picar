@@ -68,7 +68,8 @@ class PlanTests(unittest.TestCase):
                 self.assertEqual(approach['action'],'approach_place')
                 self.assertEqual(lift['angles_deg']['base'],grasp['angles_deg']['base'])
                 self.assertGreaterEqual(lift['settle_seconds'],.1)
-                for joint,value in [('shoulder',153.),('elbow',156.),('gripper',CLOSED)]:
+                # 153/156 sits below the taught approach (80/100): carry there instead.
+                for joint,value in [('shoulder',80.),('elbow',100.),('gripper',CLOSED)]:
                     self.assertEqual(lift['angles_deg'][joint],value)
                     self.assertEqual(turn['angles_deg'][joint],value)
                 lower=steps[i+3]
@@ -76,6 +77,22 @@ class PlanTests(unittest.TestCase):
                 self.assertEqual(turn['angles_deg']['base'],lower['angles_deg']['base'])
                 self.assertEqual(approach['angles_deg']['base'],turn['angles_deg']['base'])
         self.assertEqual(data,original)
+
+    def test_robot_carry_stays_above_every_taught_approach(self):
+        root=FIXTURES.parent.parent
+        read=lambda name: json.loads((root/name).read_text(encoding='utf-8'))
+        positions=read('arm_positions.json')['positions']
+        for clearance,expected in [({'shoulder':153.,'elbow':156.},{'shoulder':110.,'elbow':113.}),
+                                   ({'shoulder':105.,'elbow':113.},{'shoulder':105.,'elbow':113.})]:
+            p=PositionArmProfile(read('arm_poses.json'),read('arm_positions.json'),carry_clearance=clearance)
+            self.assertEqual(p.carry_height,expected)
+            for start in START_POSITIONS:
+                for step in p.plan(start.split('-')[0],start):
+                    if step['action'] in ('lift','rotate_place'):
+                        for position in positions.values():
+                            for joint in ('shoulder','elbow'):
+                                self.assertLessEqual(step['angles_deg'][joint],
+                                    position['approach']['angles_deg'][joint])
 
     def test_clearance_rejects_invalid_joint_targets(self):
         for clearance in ({'base':90,'shoulder':153,'elbow':156},
@@ -301,7 +318,7 @@ class BridgeTests(unittest.TestCase):
         controller = self.make(True, taught())
         self.assertIsInstance(controller.arm.profile, PositionArmProfile)
         self.assertIsNone(controller._transfer_blocked_reason())
-        self.assertEqual(controller.arm.profile.carry_clearance,{'shoulder':153.,'elbow':156.})
+        self.assertEqual(controller.arm.profile.carry_clearance,{'shoulder':105.,'elbow':113.})
 
     def test_untaught_positions_do_not_block_the_mission(self):
         controller = self.make(True, empty_profile())

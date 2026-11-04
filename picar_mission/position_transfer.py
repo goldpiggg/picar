@@ -52,8 +52,22 @@ class PositionArmProfile(ArmMotionProfile):
             if set(self.carry_clearance) != {'shoulder','elbow'}:
                 raise ValueError('Carry clearance requires only shoulder and elbow')
             self.check_angles({**neutral,**self.carry_clearance,'gripper':self.gripper['closed']})
+        self.carry_height = None if self.carry_clearance is None else self.raised_carry(self.carry_clearance)
         # Taught-and-complete is the confirmation; arm_enabled is the switch.
         self.calibrated = True
+
+    def raised_carry(self, clearance):
+        """Carry no lower than the highest taught approach, so a held object
+        crosses above the objects still standing on the other side. "Up" is
+        the way each joint moves from the taught pick/place to the approach
+        (on this arm a smaller shoulder/elbow angle)."""
+        height = {}
+        for joint, value in clearance.items():
+            approaches = [self.poses[(position, 'approach')][joint] for position in POSITIONS]
+            lows = [self.poses[(position, low)][joint] for position in POSITIONS for low in ('pick', 'place')]
+            up = -1. if sum(approaches)/len(approaches) < sum(lows)/len(lows) else 1.
+            height[joint] = float(min(value, *approaches) if up < 0 else max(value, *approaches))
+        return height
 
     def above(self, position, low):
         """Approach height over the pick/place BASE, so BASE never turns low."""
@@ -90,9 +104,10 @@ class PositionArmProfile(ArmMotionProfile):
                 if self.carry_clearance is None:
                     add(*above, 'closed', 'lift')
                 else:
-                    # Lift without turning away from the actual pickup BASE.
+                    # Lift straight up to carry height without turning away
+                    # from the actual pickup BASE.
                     add(position+' carry height',{'base':self.poses[(position,'pick')]['base'],
-                        **self.carry_clearance},'closed','lift')
+                        **self.carry_height},'closed','lift')
                     steps[-1]['settle_seconds'] = max(.1,self.values['settle_seconds'])
             else:
                 # Every PLACE is across from its PICK: one raised move from
@@ -106,7 +121,7 @@ class PositionArmProfile(ArmMotionProfile):
                     # Only BASE changes during the crossing. Start lowering
                     # after the destination's actual PLACE BASE is reached.
                     add(position+' carry height',{'base':self.poses[(position,'place')]['base'],
-                        **self.carry_clearance},'closed','rotate_place')
+                        **self.carry_height},'closed','rotate_place')
                     add(*above,'closed','approach_place')
                 add(*slot(position, 'place'), 'closed', 'lower_place')
                 add(*slot(position, 'place'), 'open', 'release')

@@ -44,8 +44,10 @@ class MissionConfig:
     qr_prepare_right_base_deg: float = 7.0
     # Applied after the taught A/B average; QR viewing only, not transfer poses.
     qr_prepare_right_base_offset_deg: float = -10.0
-    carry_clearance_shoulder_deg: float = 153.0
-    carry_clearance_elbow_deg: float = 156.0
+    # Height to carry a held object across sides. Smaller is higher on this
+    # arm; the transfer never carries lower than the highest taught approach.
+    carry_clearance_shoulder_deg: float = 105.0
+    carry_clearance_elbow_deg: float = 113.0
     qr_scan_timeout_seconds: float = 1.5
     # Elbow change while looking at the side QR codes, from wherever the elbow
     # is then (the reset pose). Negative lowers it, like the web "hand down".

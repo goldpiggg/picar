@@ -28,7 +28,7 @@ class FastMissionTests(unittest.TestCase):
         motion=load_profile()
         profile=PositionArmProfile(fast_motion_values(motion.values),
             PositionStore(ROOT/'arm_positions.json',motion.limits).read(),
-            carry_clearance={'shoulder':153.,'elbow':156.})
+            carry_clearance={'shoulder':105.,'elbow':113.})
         profile.speed_scale=4.
         self.assertLessEqual(profile.move_speed(True),MAX_ARM_SPEED)
         for start in START_POSITIONS:
@@ -47,8 +47,8 @@ class FastMissionTests(unittest.TestCase):
                 state=sequence.tick(tick*.02)
                 if action=='lift':self.assertEqual(driver.angles['base'],base)
                 if action=='rotate_place':
-                    self.assertEqual(driver.angles['shoulder'],153.)
-                    self.assertEqual(driver.angles['elbow'],156.)
+                    self.assertEqual(driver.angles['shoulder'],105.)
+                    self.assertEqual(driver.angles['elbow'],113.)
                     self.assertEqual(driver.angles['gripper'],profile.gripper['closed'])
                 if state=='COMPLETE': break
             self.assertEqual(sequence.completed_transfers,2)
