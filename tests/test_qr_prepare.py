@@ -48,6 +48,11 @@ class ElbowTiltTests(unittest.TestCase):
             self.assertEqual(driver.angles['elbow'],80.)
             self.assertEqual(driver.angles['shoulder'],90.)
             self.assertEqual(driver.angles['gripper'],90.)
+            for y in (.2,.8):
+                self.assertIsNone(preparation.next_pitch_target([
+                    dict(text='PICK',label='PICK',center_normalized=[.7,y])]))
+            with self.assertRaisesRegex(RuntimeError,'QR_PITCH_SCAN_NOT_READY'):
+                preparation.scan_pitch(4.)
             preparation.scan(4.)
             for step in range(1,101):preparation.tick(4.+step*.02)
             self.assertEqual(driver.angles['elbow'],80.)
