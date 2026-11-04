@@ -90,7 +90,8 @@ class QrPreparation:
             if not center or len(center) != 2 or not number(center[1]) or not 0 <= center[1] <= 1:
                 return None
             # Code near the top: look up first so it moves down in the image.
-            offsets = (8.,-8.) if center[1] < .5 else (-8.,8.)
+            # On the robot a lower elbow aims the camera higher.
+            offsets = (-8.,8.) if center[1] < .5 else (8.,-8.)
             low, high = self.profile.limits['elbow']
             self.pitch_targets = list(dict.fromkeys(max(low,min(high,self.pitch_origin+offset)) for offset in offsets))
             self.pitch_targets = [value for value in self.pitch_targets if value != self.pitch_origin]

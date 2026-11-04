@@ -65,7 +65,7 @@ class ViewSearchTests(unittest.TestCase):
         self.assertEqual(h.controller.snapshot()['state'],'ARM_TRANSFER')
 
     def test_single_code_triggers_pitch_before_yaw_then_success_stops_search(self):
-        for y,expected in ((.2,78.),(.8,62.)):
+        for y,expected in ((.2,62.),(.8,78.)):
             h,driver=self.make();base=driver.angles['base'];wheels=len(h.drive.commands)
             h.qr['detections']=[dict(text='PICK',label='PICK',center_normalized=[.7,y])]
             h.time=h.controller.view_scan_next
