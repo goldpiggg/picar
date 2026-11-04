@@ -139,7 +139,9 @@ register_position_routes(app, mission_bridge, str(mission_bridge.ROOT / 'picar_m
 
 @app.route('/poses/legacy')
 def poses_page():
-    return send_from_directory(str(mission_bridge.ROOT / 'picar_mission'), 'poses.html')
+    response = send_from_directory(str(mission_bridge.ROOT / 'picar_mission'), 'poses.html')
+    response.headers['Cache-Control'] = 'no-store'  # An updated robot must not show a stale page.
+    return response
 
 
 @app.route('/poses/data')
