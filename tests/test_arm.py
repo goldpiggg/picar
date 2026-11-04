@@ -364,37 +364,81 @@ class PoseRecallTests(unittest.TestCase):
 
 
 class RehearsalTests(unittest.TestCase):
-    def bridge(self, auto=False):
-        return PoseRecallTests().bridge_with_servo(auto)
+    """/poses/legacy 순서 실행: the automatic transfer from arm_positions.json, in place."""
+    def bridge(self, auto=False, taught=True):
+        import json
+        from picar_mission.arm_positions import PositionStore
+        import test_position_transfer
+        bridge,servo=PoseRecallTests().bridge_with_servo(auto)
+        temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
+        path=Path(temp.name)/'arm_positions.json'
+        if taught:
+            path.write_text(json.dumps(test_position_transfer.taught()),encoding='utf-8')
+        store=PositionStore(path)
+        bridge._position_store=lambda:store
+        self.addCleanup(bridge.stop_pose_move)
+        return bridge,servo
 
-    def test_rehearsal_runs_full_plan_uncalibrated_without_driving(self):
+    def fast(self, bridge):
         from unittest.mock import patch
-        bridge,servo=self.bridge()
         ticks=[0.]
         def clock(): ticks[0]+=.1;return ticks[0]
-        fast=lambda driver,profile:ArmSequence(driver,profile,clock=clock)
-        with patch.object(bridge,'ArmSequence',fast),patch.object(bridge.time,'sleep',lambda s:None):
-            self.assertFalse(load_profile().calibrated)
-            info=bridge.rehearse('LEFT','LEFT_TOP')
-            self.assertEqual(info['step_count'],19)
+        return (patch.object(bridge,'ArmSequence',lambda driver,profile:ArmSequence(driver,profile,clock=clock)),
+                patch.object(bridge.time,'sleep',lambda s:None))
+
+    def test_rehearsal_runs_taught_position_plan_without_driving(self):
+        from picar_mission.sequence_selection import sequence_for
+        import test_position_transfer
+        bridge,servo=self.bridge()
+        sequence,sleep=self.fast(bridge)
+        with sequence,sleep:
+            info=bridge.rehearse('LEFT','A')
+            plan=bridge._position_transfer_profile(bridge._transfer_motion_profile(),
+                                                   bridge._position_store().read()).plan('LEFT','LEFT-A')
+            self.assertEqual(info['name'],'LEFT-A 순서')
+            self.assertEqual(info['step_count'],len(plan))
             bridge._pose_move['thread'].join(10)
         status=bridge.pose_move_status()
-        self.assertEqual((status['state'],status['action'],status['pose']),('DONE','release','left_bottom_down'))
-        profile=load_profile()
-        self.assertEqual(servo.nowPos[1:5],[*profile.positions['left_bottom_down'].values(),profile.gripper['open']])
+        self.assertEqual(status['state'],'DONE',status)
+        self.assertEqual((status['action'],status['pose']),(plan[-1]['action'],plan[-1]['pose']))
+        self.assertEqual([s['position'] for s in sequence_for('LEFT-A')['steps']][-1]+' place',
+                         plan[-1]['pose'] if plan[-1]['action']=='release' else plan[-2]['pose'])
+        self.assertEqual(servo.nowPos[4],test_position_transfer.OPEN)  # Released at the end.
         self.assertEqual(servo.nowPos[0],90.)  # Steering channel untouched.
+        self.assertFalse(bridge._position_teaching)  # Manual mode needs no takeover.
 
-    def test_rehearsal_refused_in_auto_and_for_bad_side(self):
-        bridge,_=self.bridge(auto=True)
+    def test_rehearsal_in_auto_mode_stops_driving_and_switches_to_teaching(self):
+        bridge,servo=self.bridge(auto=True)
+        calls=[]
+        bridge.controller=SimpleNamespace(stop=lambda:calls.append('controller'),worker=None)
+        bridge.runtime=SimpleNamespace(stop=lambda:calls.append('runtime'),worker=None)
+        bridge._move=SimpleNamespace(motorStop=lambda:calls.append('motor'))
+        bridge._mission_started=True
+        revision=bridge._control_revision
+        sequence,sleep=self.fast(bridge)
+        with sequence,sleep:
+            bridge.rehearse('RIGHT','B')
+            bridge._pose_move['thread'].join(10)
+        self.assertEqual(calls,['controller','runtime','motor'])
+        self.assertTrue(bridge._position_teaching)
+        self.assertFalse(bridge._mission_started)
+        self.assertGreater(bridge._control_revision,revision)
+        self.assertEqual(bridge.pose_move_status()['state'],'DONE')
+
+    def test_rehearsal_rejects_bad_input_and_untaught_slots_before_stopping_anything(self):
+        bridge,servo=self.bridge()
+        with self.assertRaises(ValueError): bridge.rehearse('PICK','A')
         with self.assertRaises(ValueError): bridge.rehearse('RIGHT','LEFT_TOP')
-        bridge,_=self.bridge()
-        with self.assertRaises(ValueError): bridge.rehearse('PICK','LEFT_TOP')
-        with self.assertRaises(ValueError): bridge.rehearse('RIGHT','TOP')
+        bridge,servo=self.bridge(auto=True,taught=False)
+        bridge.controller=SimpleNamespace(stop=lambda:self.fail('must not stop the mission'),worker=None)
+        with self.assertRaisesRegex(ValueError,'ARM_POSES_INCOMPLETE'): bridge.rehearse('LEFT','A')
+        self.assertFalse(bridge._position_teaching)
+        self.assertEqual(servo.nowPos,[90.]*8)
 
     def test_manual_button_stops_rehearsal_and_holds_pose(self):
         import time
         bridge,servo=self.bridge()
-        bridge.rehearse('RIGHT','LEFT_BOTTOM');time.sleep(.15)
+        bridge.rehearse('RIGHT','A');time.sleep(.15)
         self.assertTrue(bridge.allow_command('grab'))
         self.assertEqual(bridge.pose_move_status()['state'],'STOPPED')
         held=list(servo.nowPos);time.sleep(.1)

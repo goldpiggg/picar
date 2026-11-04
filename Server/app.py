@@ -180,7 +180,7 @@ def poses_rehearse():
     from flask import jsonify, request
     body = request.get_json(silent=True) or {}
     try:
-        move = mission_bridge.rehearse(body.get('direction'), body.get('layout'))
+        move = mission_bridge.rehearse(body.get('direction'), body.get('row'))
     except (ValueError, RuntimeError) as exc:
         return jsonify(error=str(exc)), 400
     return jsonify(move=move)

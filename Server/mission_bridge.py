@@ -9,7 +9,7 @@ if str(ROOT) not in sys.path:
 from picar_mission.config import MAX_ARM_JOG_SPEED, load_config
 from picar_mission.runtime import MissionRuntime
 from picar_mission.direct_mission_controller import DirectMissionController
-from picar_mission.arm_sequence import LAYOUTS, MAX_ARM_SPEED, MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_motion_profile, load_profile, pose_targets, save_pose as save_arm_pose
+from picar_mission.arm_sequence import MAX_ARM_SPEED, MAX_SERVO_ANGLE, ArmSequence, PoseMove, load_motion_profile, load_profile, pose_targets, save_pose as save_arm_pose
 from picar_mission.qr_prepare import ArmReset, QrPreparation, side_view_targets
 from picar_mission import arm_positions
 from picar_mission.arm_positions import PositionStore
@@ -114,14 +114,28 @@ def set_arm_speed(percent):
         return arm_speed_status()
 
 
-def _make_controller():
-    # The legacy arm_poses.json transfer plan is never used here: transfers
-    # start only after the side QR sequence and use the /poses positions.
+def _transfer_motion_profile():
     profile = _load_motion_profile()
     if config.fast_mission_enabled:
         scale = profile.speed_scale
         profile = ArmMotionProfile(fast_motion_values(profile.values))
         profile.speed_scale = scale
+    return profile
+
+
+def _position_transfer_profile(motion, positions):
+    """The automatic transfer plan from the taught arm_positions.json slots."""
+    transfer = PositionArmProfile(motion.values,positions,carry_clearance={
+        'shoulder':config.carry_clearance_shoulder_deg,
+        'elbow':config.carry_clearance_elbow_deg})
+    transfer.speed_scale = motion.speed_scale
+    return transfer
+
+
+def _make_controller():
+    # The legacy arm_poses.json transfer plan is never used here: transfers
+    # start only after the side QR sequence and use the /poses positions.
+    profile = _transfer_motion_profile()
     positions, positions_error = None, None
     if config.arm_enabled:
         try:
@@ -145,11 +159,7 @@ def _make_controller():
         try:
             if positions is None:
                 raise ValueError(positions_error or 'ARM_POSES_INCOMPLETE')
-            transfer_profile = PositionArmProfile(profile.values,positions,carry_clearance={
-                'shoulder':config.carry_clearance_shoulder_deg,
-                'elbow':config.carry_clearance_elbow_deg})
-            transfer_profile.speed_scale = profile.speed_scale
-            transfer = ArmSequence(ArmAdapter(_servo),transfer_profile)
+            transfer = ArmSequence(ArmAdapter(_servo),_position_transfer_profile(profile,positions))
         except (OSError,ValueError,KeyError,TypeError) as exc:
             blocked = str(exc)
     return DirectMissionController(config,DriveAdapter(_move,_servo),
@@ -548,6 +558,21 @@ def _check_position_revision(expected_revision, session_id):
         raise ValueError('제어 상태가 바뀌었습니다. 현재 상태를 확인하고 다시 조절하세요')
 
 
+def _halt_all_motion():
+    """Stop driving, QR work and any arm move; hold the arm where it is."""
+    controller.stop()
+    if controller.worker is not None and controller.worker.is_alive():
+        raise RuntimeError('이전 주행 작업이 멈추지 않았습니다')
+    runtime.stop()
+    if runtime.worker is not None and runtime.worker.is_alive():
+        raise RuntimeError('이전 QR 작업이 멈추지 않았습니다')
+    stop_pose_move()
+    if _pose_move is not None and _pose_move['thread'].is_alive():
+        raise RuntimeError('이전 팔 이동이 멈추지 않았습니다')
+    _move.motorStop()
+    ArmAdapter(_servo).hold()
+
+
 def set_position_teaching(enabled, expected_revision=None, session_id=None):
     """Temporarily reserve control for the arm page without changing settings."""
     global _position_teaching, _control_revision, _mission_started, _mission_started_at, _cancelled, runtime, controller
@@ -558,17 +583,7 @@ def set_position_teaching(enabled, expected_revision=None, session_id=None):
         if controller is None or _servo is None:
             raise ValueError('로봇이 아직 준비되지 않았습니다')
         _control_revision += 1
-        controller.stop()
-        if controller.worker is not None and controller.worker.is_alive():
-            raise RuntimeError('이전 주행 작업이 멈추지 않았습니다')
-        runtime.stop()
-        if runtime.worker is not None and runtime.worker.is_alive():
-            raise RuntimeError('이전 QR 작업이 멈추지 않았습니다')
-        stop_pose_move()
-        if _pose_move is not None and _pose_move['thread'].is_alive():
-            raise RuntimeError('이전 팔 이동이 멈추지 않았습니다')
-        _move.motorStop()
-        ArmAdapter(_servo).hold()
+        _halt_all_motion()
         if not enabled:
             # Prepare only: never resume driving on leaving the teaching page.
             replacement_runtime = MissionRuntime(config)
@@ -606,43 +621,64 @@ def set_joint_angle(joint, angle, expected_revision=None, session_id=None):
         return position_data()
 
 
-def rehearse(direction, layout):
-    """Teach mode only: run the automatic arm plan in place, without driving."""
-    global _pose_move
-    if config.auto_approach_enabled:
-        raise ValueError('auto_approach_enabled=false 수동 모드에서만 미리 실행할 수 있습니다')
-    if _servo is None:
-        raise ValueError('서보가 아직 준비되지 않았습니다')
+def rehearse(direction, row):
+    """Run the automatic transfer from arm_positions.json in place, without driving.
+
+    Works in either mode. In automatic mode it first stops driving and QR work
+    and switches to arm teaching, exactly like 팔 수동 조절 시작; the next
+    mission start from the dashboard begins fresh.
+    """
+    global _pose_move, _control_revision, _position_teaching, _mission_started, _mission_started_at, _cancelled
     if direction not in ('LEFT','RIGHT'):
         raise ValueError('direction must be LEFT or RIGHT')
-    if layout not in LAYOUTS:
-        raise ValueError('layout must be LEFT_TOP or LEFT_BOTTOM')
-    stop_pose_move()
-    sequence = ArmSequence(ArmAdapter(_servo),_load_profile())
-    sequence.start(direction,layout,require_calibration=False)
-    stop = Event()
-    info = dict(name=direction+' '+layout+' 순서',state='MOVING',error=None,step_index=0,
-                step_count=len(sequence.steps),action=None,pose=None)
-
-    def run():
+    if row not in ('A','B'):
+        raise ValueError('row must be A or B')
+    with _lock:
+        if _servo is None:
+            raise ValueError('서보가 아직 준비되지 않았습니다')
+        # Validate the taught slots before stopping anything.
         try:
-            while not stop.is_set():
-                state = sequence.tick()
-                step = sequence.steps[min(sequence.index,len(sequence.steps)-1)]
-                info.update(step_index=sequence.index,action=step['action'],pose=step['pose'])
-                if state=='COMPLETE':
-                    info['state'] = 'DONE'
-                    return
-                time.sleep(.02)
-            sequence.cancel()  # Holds the current pose and grip; no release.
-            info['state'] = 'STOPPED'
-        except Exception as exc:
-            info.update(state='ERROR',error=str(exc))
+            profile = _position_transfer_profile(_transfer_motion_profile(),_position_store().read())
+        except (OSError,KeyError,TypeError) as exc:
+            raise ValueError(str(exc))
+        _control_revision += 1
+        if config.auto_approach_enabled and not _position_teaching:
+            if controller is None:
+                raise ValueError('로봇이 아직 준비되지 않았습니다')
+            _halt_all_motion()
+            _position_teaching = True
+            _mission_started = False
+            _mission_started_at = None
+            _cancelled = False
+        stop_pose_move()
+        if _pose_move is not None and _pose_move['thread'].is_alive():
+            raise RuntimeError('이전 팔 이동이 멈추지 않았습니다')
+        start_position = direction+'-'+row
+        sequence = ArmSequence(ArmAdapter(_servo),profile)
+        sequence.start(direction,start_position)
+        stop = Event()
+        info = dict(name=start_position+' 순서',state='MOVING',error=None,step_index=0,
+                    step_count=len(sequence.steps),action=None,pose=None)
 
-    thread = Thread(target=run,daemon=True)
-    _pose_move = dict(info=info,stop=stop,thread=thread)
-    thread.start()
-    return pose_move_status()
+        def run():
+            try:
+                while not stop.is_set():
+                    state = sequence.tick()
+                    step = sequence.steps[min(sequence.index,len(sequence.steps)-1)]
+                    info.update(step_index=sequence.index,action=step['action'],pose=step['pose'])
+                    if state=='COMPLETE':
+                        info['state'] = 'DONE'
+                        return
+                    time.sleep(.02)
+                sequence.cancel()  # Holds the current pose and grip; no release.
+                info['state'] = 'STOPPED'
+            except Exception as exc:
+                info.update(state='ERROR',error=str(exc))
+
+        thread = Thread(target=run,daemon=True)
+        _pose_move = dict(info=info,stop=stop,thread=thread)
+        thread.start()
+        return pose_move_status()
 
 
 def stop_pose_move():
