@@ -32,7 +32,7 @@
   "direct_distance_retry_seconds": 3.0,
   "arm_start_delay_seconds": 1.0,
   "_qr_prepare_elbow_offset_deg": "PICK·PLACE QR을 볼 때 팔꿈치를 초기 자세에서 이만큼 움직입니다. 음수면 내림(웹 hand down 방향)",
-  "qr_prepare_elbow_offset_deg": -20.0,
+  "qr_prepare_elbow_offset_deg": -10.0,
   "_layout": "정지 후 PICK/PLACE QR로 물체가 왼쪽 위·오른쪽 아래(LEFT_TOP)인지 왼쪽 아래·오른쪽 위(LEFT_BOTTOM)인지 판단합니다",
   "layout_frames": 1,
   "layout_min_gap": 0.05,

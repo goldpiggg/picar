@@ -51,7 +51,7 @@ class MissionConfig:
     qr_scan_timeout_seconds: float = 1.5
     # Elbow change while looking at the side QR codes, from wherever the elbow
     # is then (the reset pose). Negative lowers it, like the web "hand down".
-    qr_prepare_elbow_offset_deg: float = -20.0
+    qr_prepare_elbow_offset_deg: float = -10.0
     side_qr_settle_seconds: float = 0.3
     # After the turn, decide from one PICK or PLACE code alone when the other
     # cannot be decoded. Off: both codes are always required.
