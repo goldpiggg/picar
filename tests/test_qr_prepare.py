@@ -35,21 +35,21 @@ class ElbowTiltTests(unittest.TestCase):
             preparation.start('LEFT',0.)
         self.assertEqual(driver.writes,[])
 
-    def test_shipped_tilt_aims_camera_higher_with_fifty_degree_offset(self):
+    def test_shipped_tilt_lowers_the_elbow_twenty_degrees_on_both_sides(self):
         cfg=load_config()
-        self.assertEqual(cfg.qr_prepare_elbow_offset_deg,-50.)
+        self.assertEqual(cfg.qr_prepare_elbow_offset_deg,-20.)
         for side in ('LEFT','RIGHT'):
             driver=FakeArm()
             preparation=QrPreparation(driver,load_profile(),{'LEFT':165.,'RIGHT':7.},150.,
                 elbow_offset=cfg.qr_prepare_elbow_offset_deg)
             preparation.start(side,0.)
             for step in range(1,201):preparation.tick(step*.02)
-            self.assertEqual(driver.angles['elbow'],40.)
+            self.assertEqual(driver.angles['elbow'],70.)
             self.assertEqual(driver.angles['shoulder'],90.)
             self.assertEqual(driver.angles['gripper'],90.)
             preparation.scan(4.)
             for step in range(1,101):preparation.tick(4.+step*.02)
-            self.assertEqual(driver.angles['elbow'],40.)
+            self.assertEqual(driver.angles['elbow'],70.)
 
 
 class PreparationSettingsTests(unittest.TestCase):
@@ -182,9 +182,9 @@ class ProductionPreparationTests(unittest.TestCase):
         self.assertEqual(status['dashboard']['remaining_cm'],0.)
         self.assertEqual(status['dashboard']['distance_source'],'FINAL')
         # RIGHT fallback 7 minus viewing offset 10 clamps to BASE 0.
-        self.assertEqual(servo.nowPos[1:5],[0.,81.,53.,145.])
+        self.assertEqual(servo.nowPos[1:5],[0.,81.,83.,145.])
         self.assertEqual({channel for channel,angle in writes},{1,3})
-        self.assertEqual(status['qr_preparation']['elbow_target_deg'],53.)
+        self.assertEqual(status['qr_preparation']['elbow_target_deg'],83.)
         self.assertIsNone(controller.arm)
         self.assertTrue(all(command[0]=='stop' for command in wheels[last_wheel:]))
         self.assertEqual(bridge.runtime.snapshot()['state'],'WAIT_SIDE_QR')
